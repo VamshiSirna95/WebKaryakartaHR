@@ -20,6 +20,8 @@ model Entity {
   employees        Employee[]
   attendanceMonths AttendanceMonth[]
   payrollRuns      PayrollRun[]
+  leaveTypes       LeaveType[]
+  leaveRequests    LeaveRequest[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 }
@@ -129,6 +131,8 @@ model Employee {
   payrollDetails    PayrollDetail[]
   advanceEntries    AdvanceEntry[]
   loanAccounts      LoanAccount[]
+  leaveBalances     LeaveBalance[]
+  leaveRequests     LeaveRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -339,4 +343,69 @@ model LoanAccount {
 
   @@index([employeeId])
   @@map("loan_accounts")
+}
+
+model LeaveType {
+  id                 String   @id @default(cuid())
+  entityId           String
+  entity             Entity   @relation(fields: [entityId], references: [id])
+  code               String
+  name               String
+  annualQuota        Int
+  carryForwardMax    Int      @default(0)
+  requiresApproval   Boolean  @default(true)
+  applicableGender   String?
+  maxConsecutiveDays Int?
+  isPaid             Boolean  @default(true)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  balances  LeaveBalance[]
+  requests  LeaveRequest[]
+
+  @@unique([entityId, code])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  year        Int
+  opening     Float     @default(0)
+  credited    Float     @default(0)
+  used        Float     @default(0)
+  balance     Float     @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id              String    @id @default(cuid())
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+  leaveTypeId     String
+  leaveType       LeaveType @relation(fields: [leaveTypeId], references: [id])
+  entityId        String
+  entity          Entity    @relation(fields: [entityId], references: [id])
+  fromDate        DateTime  @db.Date
+  toDate          DateTime  @db.Date
+  days            Float
+  reason          String
+  status          String    @default("PENDING")
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?
+  isHalfDay       Boolean   @default(false)
+  halfDayType     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("leave_requests")
 }
