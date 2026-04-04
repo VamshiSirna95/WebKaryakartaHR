@@ -29,6 +29,7 @@ export async function GET(req: NextRequest) {
                 employeeCode: true,
                 fullName: true,
                 department: { select: { name: true } },
+                location: { select: { code: true, name: true } },
               },
             },
           },
