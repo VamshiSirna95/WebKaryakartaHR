@@ -1,12 +1,15 @@
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import "dotenv/config";
+import { computePayroll } from "../src/lib/payroll-engine";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
   // Clean existing data (in dependency order)
+  await prisma.payrollDetail.deleteMany();
+  await prisma.payrollRun.deleteMany();
   await prisma.attendanceRecord.deleteMany();
   await prisma.attendanceMonth.deleteMany();
   await prisma.holiday.deleteMany();
@@ -139,8 +142,144 @@ async function main() {
     });
   }
 
+  // ─── Attendance seed for MGBT April 2026 ───────────────────────────────────
+  const YEAR = 2026;
+  const MONTH = 4;
+  const SUNDAYS = new Set([5, 12, 19, 26]);
+  const HOLIDAY_DAY = 14;
+  const TODAY_DAY = 4;
+  const RANDOM_STATUSES = ["P", "P", "P", "P", "P", "P", "P", "P", "A", "HD", "SL", "CL"];
+
+  function pickStatus(day: number): string | null {
+    if (day > TODAY_DAY) return null;
+    if (SUNDAYS.has(day)) return "WO";
+    if (day === HOLIDAY_DAY) return "PH";
+    return RANDOM_STATUSES[Math.floor(Math.random() * RANDOM_STATUSES.length)];
+  }
+
+  await prisma.holiday.deleteMany({ where: { date: new Date(`${YEAR}-04-14`) } });
+  await prisma.holiday.create({
+    data: { date: new Date(`${YEAR}-04-14`), name: "Ambedkar Jayanti" },
+  });
+
+  const attendanceMonth = await prisma.attendanceMonth.upsert({
+    where: { year_month_entityId: { year: YEAR, month: MONTH, entityId: mgbt.id } },
+    update: {},
+    create: { year: YEAR, month: MONTH, entityId: mgbt.id, status: "OPEN" },
+  });
+
+  const mgbtEmployees = await prisma.employee.findMany({
+    where: { entityId: mgbt.id },
+    include: { designation: true },
+  });
+
+  // Seed attendance records + compute summary fields
+  const attendanceInputs: { employeeId: string; workedDays: number; payableDays: number; otDays: number }[] = [];
+
+  for (const emp of mgbtEmployees) {
+    const dayData: Record<string, string | null> = {};
+    let workedDays = 0;
+    let weekOffs = 0;
+    for (let d = 1; d <= 30; d++) {
+      const status = pickStatus(d);
+      dayData[`day${d}`] = status;
+      if (status === "P" || status === "PH") workedDays += 1;
+      else if (status === "HD") workedDays += 0.5;
+      else if (status === "WO") weekOffs += 1;
+    }
+    const total = workedDays + weekOffs;
+    const otDays = Math.max(0, total - 30);
+    const payableDays = total - otDays;
+
+    await prisma.attendanceRecord.upsert({
+      where: { attendanceMonthId_employeeId: { attendanceMonthId: attendanceMonth.id, employeeId: emp.id } },
+      update: { ...dayData, workedDays, weekOffs, otDays, payableDays },
+      create: { attendanceMonthId: attendanceMonth.id, employeeId: emp.id, ...dayData, workedDays, weekOffs, otDays, payableDays },
+    });
+
+    attendanceInputs.push({ employeeId: emp.id, workedDays, payableDays, otDays });
+  }
+
+  // ─── Payroll seed for MGBT April 2026 ────────────────────────────────────
+  const payrollRun = await prisma.payrollRun.create({
+    data: { entityId: mgbt.id, year: YEAR, month: MONTH, status: "PROCESSED", processedAt: new Date() },
+  });
+
+  let totalGross = 0, totalDeductions = 0, totalNet = 0;
+
+  for (const emp of mgbtEmployees) {
+    const att = attendanceInputs.find((a) => a.employeeId === emp.id);
+    const attInput = {
+      payableDays: att?.payableDays ?? 0,
+      workedDays: att?.workedDays ?? 0,
+      otDays: att?.otDays ?? 0,
+      leaveEncashDays: 0,
+      labourHoliday: 0,
+    };
+    const empInput = {
+      salary: Number(emp.salary),
+      ta: Number(emp.travelAllow),
+      uanNumber: emp.uanNumber,
+      esiNumber: emp.esiNumber,
+    };
+    const result = computePayroll(empInput, attInput, 0);
+
+    await prisma.payrollDetail.create({
+      data: {
+        payrollRunId: payrollRun.id,
+        employeeId: emp.id,
+        payableDays: attInput.payableDays,
+        workedDays: attInput.workedDays,
+        otDays: attInput.otDays,
+        leaveEncashDays: 0,
+        labourHoliday: 0,
+        salary: empInput.salary,
+        basic: result.basic,
+        hra: result.hra,
+        specialAllowance: result.specialAllowance,
+        bonus: result.bonus,
+        ta: result.ta,
+        lec: result.lec,
+        perDaySalary: result.perDaySalary,
+        earnedBasic: result.earnedBasic,
+        earnedHra: result.earnedHra,
+        earnedSpecial: result.earnedSpecial,
+        earnedOt: result.earnedOt,
+        earnedLeave: result.earnedLeave,
+        earnedLabour: result.earnedLabour,
+        earnedTa: result.earnedTa,
+        salaryArrears: 0,
+        grossSalary: result.grossSalary,
+        pfEmployee: result.pfEmployee,
+        pfEmployer: result.pfEmployer,
+        esiEmployee: result.esiEmployee,
+        esiEmployer: result.esiEmployer,
+        professionalTax: result.professionalTax,
+        totalDeductions: result.totalDeductions,
+        netSalary: result.netSalary,
+        gratuity: result.gratuity,
+        ctc: result.ctc,
+      },
+    });
+
+    totalGross += result.grossSalary;
+    totalDeductions += result.totalDeductions;
+    totalNet += result.netSalary;
+  }
+
+  await prisma.payrollRun.update({
+    where: { id: payrollRun.id },
+    data: {
+      totalGross,
+      totalDeductions,
+      totalNet,
+      employeeCount: mgbtEmployees.length,
+    },
+  });
+
   console.log("Seed completed successfully!");
   console.log(`Created ${employees.length} employees across 2 entities and 7 locations.`);
+  console.log(`Seeded April ${YEAR} attendance + payroll for ${mgbtEmployees.length} MGBT employees.`);
 }
 
 main()
