@@ -1,24 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
-import type { TDocumentDefinitions, Content, TableCell } from "pdfmake/interfaces";
-
-// pdfmake/lib/printer is the server-side (Node.js) printer
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const PdfPrinter: new (fonts: Record<string, unknown>) => { createPdfKitDocument: (def: TDocumentDefinitions) => NodeJS.EventEmitter & { end: () => void } } =
-  require("pdfmake/build/pdfmake");
-
-// Load Roboto from pdfmake's built-in vfs
-const vfs = require("pdfmake/build/vfs_fonts").pdfMake.vfs as Record<string, string>;
-
-PdfPrinter.prototype.vfs = vfs;
-
-const fonts = {
-  Roboto: {
-    normal: "Roboto-Regular.ttf",
-    bold: "Roboto-Medium.ttf",
-    italics: "Roboto-Italic.ttf",
-    bolditalics: "Roboto-MediumItalic.ttf",
-  },
-};
+import { PDFDocument, StandardFonts, rgb, PDFPage, PDFFont } from "pdf-lib";
 
 export interface PayrollDetailWithEmployee {
   id: string;
@@ -128,52 +108,108 @@ export function numberToWords(n: number): string {
   return "Rupees " + result.trim().replace(/\s+/g, " ") + " Only";
 }
 
-// ── PDF Builder ───────────────────────────────────────────────────────────────
-
 export const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
-function tc(obj: Record<string, unknown>): TableCell {
-  return obj as unknown as TableCell;
+// ── PDF Drawing Helpers ──────────────────────────────────────────────────────
+
+const PAGE_W = 595.28;
+const PAGE_H = 841.89;
+const M_LEFT = 30;
+const M_RIGHT = 30;
+const CONTENT_W = PAGE_W - M_LEFT - M_RIGHT;
+const COL_MID = M_LEFT + CONTENT_W / 2;
+const RIGHT_EDGE = PAGE_W - M_RIGHT;
+
+const BLACK = rgb(0, 0, 0);
+const GRAY = rgb(0.33, 0.33, 0.33);
+const LIGHT_GRAY = rgb(0.53, 0.53, 0.53);
+const MUTED = rgb(0.67, 0.67, 0.67);
+const RED = rgb(0.8, 0.13, 0);
+const GREEN = rgb(0, 0.4, 0);
+const AMBER = rgb(0.8, 0.47, 0);
+const BLUE = rgb(0, 0.33, 0.8);
+const BG_LIGHT = rgb(0.96, 0.96, 0.96);
+const BG_GREEN = rgb(0.94, 1, 0.94);
+const LINE_COLOR = rgb(0.82, 0.82, 0.82);
+
+function drawTextRight(page: PDFPage, text: string, x: number, y: number, size: number, font: PDFFont, color = BLACK) {
+  const w = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: x - w, y, size, font, color });
 }
 
-function buildPayslipContent(
+function drawTextCenter(page: PDFPage, text: string, centerX: number, y: number, size: number, font: PDFFont, color = BLACK) {
+  const w = font.widthOfTextAtSize(text, size);
+  page.drawText(text, { x: centerX - w / 2, y, size, font, color });
+}
+
+function hLine(page: PDFPage, y: number, x1 = M_LEFT, x2 = RIGHT_EDGE) {
+  page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: 0.5, color: LINE_COLOR });
+}
+
+// ── Payslip on a page ────────────────────────────────────────────────────────
+
+async function drawPayslipOnPage(
+  pdfDoc: PDFDocument,
   detail: PayrollDetailWithEmployee,
   entityName: string,
   month: string,
-  year: number,
-  pageBreak: boolean
-): Content[] {
+  year: number
+): Promise<void> {
+  const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+
   const emp = detail.employee;
-  const doj = formatDate(emp.dateOfJoining);
+  let y = PAGE_H - 40;
 
-  function infoItem(label: string, value: string): Content {
-    return {
-      stack: [
-        { text: label, fontSize: 7, color: "#888888" },
-        { text: value, fontSize: 9, bold: true, color: "#111111" },
-      ],
-      margin: [0, 0, 0, 6],
-    } as Content;
+  // ── Header background ──
+  page.drawRectangle({ x: M_LEFT, y: y - 8, width: CONTENT_W, height: 42, color: BG_LIGHT });
+  page.drawText(entityName.toUpperCase(), { x: M_LEFT + 10, y: y + 12, size: 14, font: fontBold, color: BLACK });
+  page.drawText(`Salary Slip — ${month} ${year}`, { x: M_LEFT + 10, y: y - 4, size: 10, font, color: LIGHT_GRAY });
+  hLine(page, y - 8);
+  y -= 22;
+
+  // ── Employee Info — Two columns ──
+  y -= 16;
+  const infoLeft = M_LEFT + 10;
+  const infoRight = COL_MID + 10;
+
+  function infoRow(label: string, value: string, x: number, yPos: number): number {
+    page.drawText(label, { x, y: yPos, size: 7, font, color: MUTED });
+    page.drawText(value, { x, y: yPos - 11, size: 9, font: fontBold, color: GRAY });
+    return yPos - 26;
   }
 
-  function earningCell(label: string, amount: number): TableCell[] {
-    return [
-      tc({ text: label, fontSize: 9, color: "#444444", border: [true, false, false, false], margin: [4, 2, 4, 2] }),
-      tc({ text: inr(amount), fontSize: 9, alignment: "right", color: amount > 0 ? "#111111" : "#aaaaaa", border: [false, false, false, false], margin: [4, 2, 4, 2] }),
-    ];
-  }
+  let yL = y;
+  let yR = y;
+  yL = infoRow("Employee Code", emp.employeeCode, infoLeft, yL);
+  yR = infoRow("Department", emp.department?.name ?? "N/A", infoRight, yR);
+  yL = infoRow("Name", emp.fullName, infoLeft, yL);
+  yR = infoRow("Location", emp.location ? `${emp.location.code} — ${emp.location.name}` : "N/A", infoRight, yR);
+  yL = infoRow("Designation", emp.designation?.name ?? "N/A", infoLeft, yL);
+  yR = infoRow("Bank", bankDisplay(emp), infoRight, yR);
+  yL = infoRow("Date of Joining", formatDate(emp.dateOfJoining), infoLeft, yL);
+  yR = infoRow("Payable Days", String(detail.payableDays), infoRight, yR);
 
-  function deductionCell(label: string, amount: number): TableCell[] {
-    return [
-      tc({ text: label, fontSize: 9, color: "#444444", border: [false, false, false, false], margin: [4, 2, 4, 2] }),
-      tc({ text: inr(amount), fontSize: 9, alignment: "right", color: amount > 0 ? "#cc2200" : "#aaaaaa", border: [false, false, true, false], margin: [4, 2, 4, 2] }),
-    ];
-  }
+  y = Math.min(yL, yR) - 4;
+  // vertical divider
+  page.drawLine({ start: { x: COL_MID, y: y + 108 }, end: { x: COL_MID, y }, thickness: 0.5, color: LINE_COLOR });
+  hLine(page, y);
 
-  const earningsRows: [string, number][] = [
+  // ── Earnings / Deductions header ──
+  y -= 4;
+  page.drawRectangle({ x: M_LEFT, y: y - 14, width: CONTENT_W, height: 18, color: BG_LIGHT });
+  page.drawText("EARNINGS", { x: M_LEFT + 10, y: y - 10, size: 9, font: fontBold, color: GRAY });
+  page.drawText("DEDUCTIONS", { x: COL_MID + 10, y: y - 10, size: 9, font: fontBold, color: GRAY });
+  y -= 18;
+  hLine(page, y);
+
+  // ── Earnings rows ──
+  const earningsData: [string, number][] = [
     ["Earned Basic", detail.earnedBasic],
     ["Earned HRA", detail.earnedHra],
     ["Earned Special", detail.earnedSpecial],
@@ -182,11 +218,8 @@ function buildPayslipContent(
     ["Labour Holiday", detail.earnedLabour],
     ["Earned TA", detail.earnedTa],
     ["Salary Arrears", detail.salaryArrears],
-    ["", 0],
-    ["", 0],
   ];
-
-  const deductionsRows: [string, number][] = [
+  const deductionsData: [string, number][] = [
     ["PF Employee", detail.pfEmployee],
     ["ESI Employee", detail.esiEmployee],
     ["Prof. Tax", detail.professionalTax],
@@ -199,158 +232,71 @@ function buildPayslipContent(
     ["Cash Loan EMI", detail.cashLoanEmi],
   ];
 
-  const tableBody: TableCell[][] = [
-    [
-      tc({ text: "EARNINGS", fontSize: 9, bold: true, color: "#333333", colSpan: 2, border: [true, true, false, true], fillColor: "#eeeeee", margin: [4, 4, 4, 4] }),
-      tc({}),
-      tc({ text: "", border: [false, false, false, false] }),
-      tc({ text: "DEDUCTIONS", fontSize: 9, bold: true, color: "#333333", colSpan: 2, border: [false, true, true, true], fillColor: "#eeeeee", margin: [4, 4, 4, 4] }),
-      tc({}),
-    ],
-    ...earningsRows.map((er, i) => {
-      const dr = deductionsRows[i];
-      const [eLabel, eAmt] = er;
-      const [dLabel, dAmt] = dr;
-      return [
-        ...earningCell(eLabel, eAmt),
-        tc({ text: "", border: [false, false, false, false] }),
-        ...deductionCell(dLabel, dAmt),
-      ] as TableCell[];
-    }),
-    [
-      tc({ text: "GROSS SALARY", fontSize: 9, bold: true, color: "#333333", border: [true, true, false, true], fillColor: "#f9f9f9", margin: [4, 4, 4, 4] }),
-      tc({ text: inr(detail.grossSalary), fontSize: 9, bold: true, alignment: "right", color: "#cc7700", border: [false, true, false, true], fillColor: "#f9f9f9", margin: [4, 4, 4, 4] }),
-      tc({ text: "", border: [false, false, false, false], fillColor: "#ffffff" }),
-      tc({ text: "TOTAL DEDUCTIONS", fontSize: 9, bold: true, color: "#333333", border: [false, true, false, true], fillColor: "#f9f9f9", margin: [4, 4, 4, 4] }),
-      tc({ text: inr(detail.totalDeductions), fontSize: 9, bold: true, alignment: "right", color: "#cc2200", border: [false, true, true, true], fillColor: "#f9f9f9", margin: [4, 4, 4, 4] }),
-    ],
-  ];
+  const maxRows = Math.max(earningsData.length, deductionsData.length);
+  const rowH = 16;
 
-  const lastItem: Content = {
-    text: "This is a computer-generated document. No signature required.",
-    fontSize: 7,
-    color: "#aaaaaa",
-    italics: true,
-    alignment: "center",
-    margin: [0, 0, 0, 0],
-  };
-
-  if (pageBreak) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (lastItem as any).pageBreak = "after";
+  for (let i = 0; i < maxRows; i++) {
+    y -= rowH;
+    if (i < earningsData.length) {
+      const [label, amt] = earningsData[i];
+      page.drawText(label, { x: M_LEFT + 10, y, size: 9, font, color: rgb(0.27, 0.27, 0.27) });
+      drawTextRight(page, amt > 0 ? inr(amt) : "—", COL_MID - 10, y, 9, font, amt > 0 ? BLACK : MUTED);
+    }
+    if (i < deductionsData.length) {
+      const [label, amt] = deductionsData[i];
+      page.drawText(label, { x: COL_MID + 10, y, size: 9, font, color: rgb(0.27, 0.27, 0.27) });
+      drawTextRight(page, amt > 0 ? inr(amt) : "—", RIGHT_EDGE - 10, y, 9, font, amt > 0 ? RED : MUTED);
+    }
   }
 
-  const content: Content[] = [
-    // ── Header ──
-    {
-      table: {
-        widths: ["*"],
-        body: [[tc({
-          stack: [
-            { text: entityName.toUpperCase(), fontSize: 14, bold: true, color: "#111111" },
-            { text: `Salary Slip — ${month} ${year}`, fontSize: 10, color: "#555555", margin: [0, 2, 0, 0] },
-          ],
-          fillColor: "#f5f5f5",
-          border: [false, false, false, true],
-          margin: [8, 8, 8, 8],
-        })]],
-      },
-      layout: { hLineColor: () => "#dddddd", vLineColor: () => "#dddddd" },
-      margin: [0, 0, 0, 6],
-    } as Content,
+  // vertical divider through table
+  page.drawLine({ start: { x: COL_MID, y: y + maxRows * rowH }, end: { x: COL_MID, y: y - 4 }, thickness: 0.5, color: LINE_COLOR });
 
-    // ── Employee Info ──
-    {
-      table: {
-        widths: ["*", "*"],
-        body: [[
-          tc({
-            stack: [
-              infoItem("Employee Code", emp.employeeCode),
-              infoItem("Name", emp.fullName),
-              infoItem("Designation", emp.designation?.name ?? "N/A"),
-              infoItem("Date of Joining", doj),
-            ],
-            margin: [6, 6, 6, 6],
-          }),
-          tc({
-            stack: [
-              infoItem("Department", emp.department?.name ?? "N/A"),
-              infoItem("Location", emp.location ? `${emp.location.code} — ${emp.location.name}` : "N/A"),
-              infoItem("Bank", bankDisplay(emp)),
-              infoItem("Payable Days", String(detail.payableDays)),
-            ],
-            margin: [6, 6, 6, 6],
-          }),
-        ]],
-      },
-      layout: { hLineColor: () => "#dddddd", vLineColor: () => "#dddddd" },
-      margin: [0, 0, 0, 6],
-    } as Content,
+  y -= 8;
+  hLine(page, y);
 
-    // ── Earnings / Deductions table ──
-    {
-      table: {
-        widths: ["*", "auto", 8, "*", "auto"],
-        body: tableBody,
-      },
-      layout: { hLineColor: () => "#dddddd", vLineColor: () => "#dddddd" },
-      margin: [0, 0, 0, 6],
-    } as Content,
+  // ── Gross / Total Deductions ──
+  y -= 4;
+  page.drawRectangle({ x: M_LEFT, y: y - 16, width: CONTENT_W, height: 20, color: BG_LIGHT });
+  page.drawText("GROSS SALARY", { x: M_LEFT + 10, y: y - 12, size: 9, font: fontBold, color: GRAY });
+  drawTextRight(page, inr(detail.grossSalary), COL_MID - 10, y - 12, 9, fontBold, AMBER);
+  page.drawText("TOTAL DEDUCTIONS", { x: COL_MID + 10, y: y - 12, size: 9, font: fontBold, color: GRAY });
+  drawTextRight(page, inr(detail.totalDeductions), RIGHT_EDGE - 10, y - 12, 9, fontBold, RED);
+  y -= 20;
+  hLine(page, y);
 
-    // ── Net Pay ──
-    {
-      table: {
-        widths: ["*"],
-        body: [[tc({
-          stack: [
-            { text: "NET PAY", fontSize: 9, bold: true, color: "#555555", alignment: "center" },
-            { text: inr(detail.netSalary), fontSize: 18, bold: true, color: "#006600", alignment: "center", margin: [0, 2, 0, 2] },
-            { text: numberToWords(detail.netSalary), fontSize: 8, italics: true, color: "#555555", alignment: "center" },
-          ],
-          fillColor: "#f0fff0",
-          border: [true, true, true, true],
-          margin: [8, 8, 8, 8],
-        })]],
-      },
-      layout: { hLineColor: () => "#aaddaa", vLineColor: () => "#aaddaa" },
-      margin: [0, 0, 0, 6],
-    } as Content,
+  // ── Net Pay ──
+  y -= 4;
+  const netH = 54;
+  page.drawRectangle({ x: M_LEFT, y: y - netH, width: CONTENT_W, height: netH, color: BG_GREEN });
+  const netCenterX = M_LEFT + CONTENT_W / 2;
+  drawTextCenter(page, "NET PAY", netCenterX, y - 12, 9, fontBold, LIGHT_GRAY);
+  drawTextCenter(page, inr(detail.netSalary), netCenterX, y - 30, 18, fontBold, GREEN);
+  drawTextCenter(page, numberToWords(detail.netSalary), netCenterX, y - 44, 7, fontItalic, LIGHT_GRAY);
+  y -= netH;
+  hLine(page, y);
 
-    // ── Employer Cost ──
-    {
-      table: {
-        widths: ["auto", "auto", "auto", "auto", "auto", "auto", "auto", "*"],
-        body: [[
-          tc({ text: "Employer Cost:", fontSize: 8, bold: true, color: "#555555", border: [true, true, false, true], fillColor: "#f5f5f5", margin: [6, 4, 4, 4] }),
-          tc({ text: "PF", fontSize: 8, color: "#888888", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [0, 4, 0, 4] }),
-          tc({ text: inr(detail.pfEmployer), fontSize: 8, bold: true, color: "#333333", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [4, 4, 8, 4] }),
-          tc({ text: "ESI", fontSize: 8, color: "#888888", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [0, 4, 0, 4] }),
-          tc({ text: inr(detail.esiEmployer), fontSize: 8, bold: true, color: "#333333", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [4, 4, 8, 4] }),
-          tc({ text: "Gratuity", fontSize: 8, color: "#888888", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [0, 4, 0, 4] }),
-          tc({ text: inr(detail.gratuity), fontSize: 8, bold: true, color: "#333333", border: [false, true, false, true], fillColor: "#f5f5f5", margin: [4, 4, 8, 4] }),
-          tc({ text: `CTC: ${inr(detail.ctc)}`, fontSize: 8, bold: true, color: "#0055cc", alignment: "right", border: [false, true, true, true], fillColor: "#f5f5f5", margin: [4, 4, 6, 4] }),
-        ]],
-      },
-      layout: { hLineColor: () => "#dddddd", vLineColor: () => "#dddddd" },
-      margin: [0, 0, 0, 6],
-    } as Content,
+  // ── Employer Cost ──
+  y -= 4;
+  page.drawRectangle({ x: M_LEFT, y: y - 18, width: CONTENT_W, height: 18, color: BG_LIGHT });
+  let costX = M_LEFT + 10;
+  page.drawText("Employer Cost:", { x: costX, y: y - 13, size: 8, font: fontBold, color: LIGHT_GRAY });
+  costX += 78;
+  page.drawText(`PF ${inr(detail.pfEmployer)}`, { x: costX, y: y - 13, size: 8, font, color: GRAY });
+  costX += 90;
+  page.drawText(`ESI ${inr(detail.esiEmployer)}`, { x: costX, y: y - 13, size: 8, font, color: GRAY });
+  costX += 80;
+  page.drawText(`Gratuity ${inr(detail.gratuity)}`, { x: costX, y: y - 13, size: 8, font, color: GRAY });
+  drawTextRight(page, `CTC: ${inr(detail.ctc)}`, RIGHT_EDGE - 10, y - 13, 8, fontBold, BLUE);
+  y -= 22;
+  hLine(page, y);
 
-    lastItem,
-  ];
-
-  return content;
+  // ── Footer ──
+  y -= 14;
+  drawTextCenter(page, "This is a computer-generated document. No signature required.", netCenterX, y, 7, fontItalic, MUTED);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
-
-function makePrinter() {
-  // Browser build of pdfmake can be used server-side with vfs fonts
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfmake = require("pdfmake/build/pdfmake") as any;
-  pdfmake.vfs = vfs;
-  return pdfmake;
-}
 
 export async function generatePayslipPdf(
   detail: PayrollDetailWithEmployee,
@@ -358,23 +304,10 @@ export async function generatePayslipPdf(
   month: string,
   year: number
 ): Promise<Buffer> {
-  const pdfmake = makePrinter();
-
-  const docDef: TDocumentDefinitions = {
-    pageSize: "A4",
-    pageMargins: [30, 30, 30, 30],
-    defaultStyle: { font: "Roboto" },
-    content: buildPayslipContent(detail, entityName, month, year, false),
-  };
-
-  return new Promise<Buffer>((resolve, reject) => {
-    const pdfDoc = pdfmake.createPdf(docDef);
-    pdfDoc.getBuffer((buffer: Buffer) => {
-      resolve(buffer);
-    });
-    // timeout fallback
-    setTimeout(() => reject(new Error("PDF generation timeout")), 30000);
-  });
+  const pdfDoc = await PDFDocument.create();
+  await drawPayslipOnPage(pdfDoc, detail, entityName, month, year);
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
 
 export async function generateBulkPayslipsPdf(
@@ -383,27 +316,10 @@ export async function generateBulkPayslipsPdf(
   month: string,
   year: number
 ): Promise<Buffer> {
-  const pdfmake = makePrinter();
-
-  const allContent: Content[] = [];
-  details.forEach((detail, idx) => {
-    const isLast = idx === details.length - 1;
-    const pages = buildPayslipContent(detail, entityName, month, year, !isLast);
-    allContent.push(...pages);
-  });
-
-  const docDef: TDocumentDefinitions = {
-    pageSize: "A4",
-    pageMargins: [30, 30, 30, 30],
-    defaultStyle: { font: "Roboto" },
-    content: allContent,
-  };
-
-  return new Promise<Buffer>((resolve, reject) => {
-    const pdfDoc = pdfmake.createPdf(docDef);
-    pdfDoc.getBuffer((buffer: Buffer) => {
-      resolve(buffer);
-    });
-    setTimeout(() => reject(new Error("PDF generation timeout")), 60000);
-  });
+  const pdfDoc = await PDFDocument.create();
+  for (const detail of details) {
+    await drawPayslipOnPage(pdfDoc, detail, entityName, month, year);
+  }
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
