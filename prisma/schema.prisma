@@ -8,18 +8,19 @@ datasource db {
 }
 
 model Entity {
-  id        String     @id @default(cuid())
-  code      String     @unique
-  name      String
-  legalName String?
-  pfCode    String?
-  esiCode   String?
-  ptCode    String?
-  gstin     String?
-  locations Location[]
-  employees Employee[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id               String            @id @default(cuid())
+  code             String            @unique
+  name             String
+  legalName        String?
+  pfCode           String?
+  esiCode          String?
+  ptCode           String?
+  gstin            String?
+  locations        Location[]
+  employees        Employee[]
+  attendanceMonths AttendanceMonth[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 }
 
 model Location {
@@ -123,6 +124,8 @@ model Employee {
   specialAllow Decimal @default(0) @db.Decimal(12, 2)
   travelAllow  Decimal @default(0) @db.Decimal(12, 2)
 
+  attendanceRecords AttendanceRecord[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -130,4 +133,81 @@ model Employee {
   @@index([locationId])
   @@index([departmentId])
   @@index([status])
+}
+
+model AttendanceMonth {
+  id       String   @id @default(cuid())
+  year     Int
+  month    Int
+  entityId String
+  entity   Entity   @relation(fields: [entityId], references: [id])
+  status   String   @default("OPEN")
+  lockedAt DateTime?
+  lockedBy String?
+  records  AttendanceRecord[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([year, month, entityId])
+}
+
+model AttendanceRecord {
+  id                String          @id @default(cuid())
+  attendanceMonthId String
+  attendanceMonth   AttendanceMonth @relation(fields: [attendanceMonthId], references: [id])
+  employeeId        String
+  employee          Employee        @relation(fields: [employeeId], references: [id])
+
+  day1  String?
+  day2  String?
+  day3  String?
+  day4  String?
+  day5  String?
+  day6  String?
+  day7  String?
+  day8  String?
+  day9  String?
+  day10 String?
+  day11 String?
+  day12 String?
+  day13 String?
+  day14 String?
+  day15 String?
+  day16 String?
+  day17 String?
+  day18 String?
+  day19 String?
+  day20 String?
+  day21 String?
+  day22 String?
+  day23 String?
+  day24 String?
+  day25 String?
+  day26 String?
+  day27 String?
+  day28 String?
+  day29 String?
+  day30 String?
+  day31 String?
+
+  workedDays  Decimal? @db.Decimal(5, 1)
+  weekOffs    Int?
+  otDays      Decimal? @db.Decimal(5, 1)
+  payableDays Decimal? @db.Decimal(5, 1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([attendanceMonthId, employeeId])
+  @@index([employeeId])
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime @db.Date
+  name      String
+  entityId  String?
+  createdAt DateTime @default(now())
+
+  @@unique([date, entityId])
 }
