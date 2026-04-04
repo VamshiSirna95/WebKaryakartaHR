@@ -13,6 +13,15 @@ interface EmployeeInput {
   esiNumber: string | null;
 }
 
+export interface AdvanceInput {
+  bankAdvance: number;
+  cashAdvance: number;
+  jifyAdvance: number;
+  loanEmi: number;
+  cashLoanEmi: number;
+  uniformDeduction: number;
+}
+
 interface PayrollResult {
   // Salary structure
   basic: number;
@@ -37,6 +46,12 @@ interface PayrollResult {
   esiEmployee: number;
   esiEmployer: number;
   professionalTax: number;
+  bankAdvance: number;
+  cashAdvance: number;
+  jifyAdvance: number;
+  loanEmi: number;
+  cashLoanEmi: number;
+  uniformDeduction: number;
   totalDeductions: number;
   netSalary: number;
   // Employer cost
@@ -44,7 +59,17 @@ interface PayrollResult {
   ctc: number;
 }
 
-export function computePayroll(emp: EmployeeInput, att: AttendanceInput, salaryArrears: number = 0): PayrollResult {
+const DEFAULT_ADVANCES: AdvanceInput = {
+  bankAdvance: 0, cashAdvance: 0, jifyAdvance: 0,
+  loanEmi: 0, cashLoanEmi: 0, uniformDeduction: 0,
+};
+
+export function computePayroll(
+  emp: EmployeeInput,
+  att: AttendanceInput,
+  salaryArrears: number = 0,
+  advances: AdvanceInput = DEFAULT_ADVANCES
+): PayrollResult {
   // Step 1: Salary structure
   const basic = Math.round(emp.salary * 0.70);
   const hra = Math.round(emp.salary * 0.20);
@@ -83,8 +108,11 @@ export function computePayroll(emp: EmployeeInput, att: AttendanceInput, salaryA
   if (grossSalary >= 20001) professionalTax = 200;
   else if (grossSalary >= 15001) professionalTax = 150;
 
-  // Total deductions (statutory only for now — advances/loans added in Session 4B)
-  const totalDeductions = pfEmployee + esiEmployee + professionalTax;
+  // Total deductions (statutory + advances/loans)
+  const totalDeductions = pfEmployee + esiEmployee + professionalTax +
+    advances.bankAdvance + advances.cashAdvance + advances.jifyAdvance +
+    advances.loanEmi + advances.cashLoanEmi + advances.uniformDeduction;
+
   const netSalary = grossSalary - totalDeductions;
 
   // Employer cost
@@ -96,6 +124,12 @@ export function computePayroll(emp: EmployeeInput, att: AttendanceInput, salaryA
     earnedBasic, earnedHra, earnedSpecial, earnedOt, earnedLeave, earnedLabour, earnedTa,
     grossSalary,
     pfEmployee, pfEmployer, esiEmployee, esiEmployer, professionalTax,
+    bankAdvance: advances.bankAdvance,
+    cashAdvance: advances.cashAdvance,
+    jifyAdvance: advances.jifyAdvance,
+    loanEmi: advances.loanEmi,
+    cashLoanEmi: advances.cashLoanEmi,
+    uniformDeduction: advances.uniformDeduction,
     totalDeductions, netSalary,
     gratuity, ctc,
   };

@@ -41,6 +41,16 @@ export async function POST(req: NextRequest) {
       (attendanceMonth?.records ?? []).map((r) => [r.employeeId, r])
     );
 
+    // Get all advance entries for this entity + month + year
+    const allAdvanceEntries = await db.advanceEntry.findMany({
+      where: { employee: { entityId }, month, year },
+    });
+
+    // Get all active loan accounts for this entity's employees
+    const allLoans = await db.loanAccount.findMany({
+      where: { employee: { entityId }, status: "ACTIVE" },
+    });
+
     // Process each employee
     for (const emp of employees) {
       const rec = recordMap.get(emp.id);
@@ -60,7 +70,30 @@ export async function POST(req: NextRequest) {
         esiNumber: emp.esiNumber,
       };
 
-      const result = computePayroll(empInput, att, 0);
+      // Aggregate advance entries for this employee
+      const empEntries = allAdvanceEntries.filter((e) => e.employeeId === emp.id);
+      const empLoans = allLoans.filter((l) => l.employeeId === emp.id);
+
+      const advances = {
+        bankAdvance: 0, cashAdvance: 0, jifyAdvance: 0,
+        loanEmi: 0, cashLoanEmi: 0, uniformDeduction: 0,
+      };
+
+      for (const e of empEntries) {
+        if (e.type === "BANK_ADVANCE") advances.bankAdvance += e.amount;
+        else if (e.type === "CASH_ADVANCE") advances.cashAdvance += e.amount;
+        else if (e.type === "JIFY_ADVANCE") advances.jifyAdvance += e.amount;
+        else if (e.type === "LOAN_EMI") advances.loanEmi += e.amount;
+        else if (e.type === "CASH_LOAN_EMI") advances.cashLoanEmi += e.amount;
+      }
+
+      // Auto-pull active loan EMIs
+      for (const loan of empLoans) {
+        if (loan.loanType === "EMPLOYEE_LOAN") advances.loanEmi += loan.emiAmount;
+        else if (loan.loanType === "CASH_LOAN") advances.cashLoanEmi += loan.emiAmount;
+      }
+
+      const result = computePayroll(empInput, att, 0, advances);
 
       await db.payrollDetail.upsert({
         where: { payrollRunId_employeeId: { payrollRunId: run.id, employeeId: emp.id } },
@@ -92,6 +125,12 @@ export async function POST(req: NextRequest) {
           esiEmployee: result.esiEmployee,
           esiEmployer: result.esiEmployer,
           professionalTax: result.professionalTax,
+          bankAdvance: result.bankAdvance,
+          cashAdvance: result.cashAdvance,
+          jifyAdvance: result.jifyAdvance,
+          loanEmi: result.loanEmi,
+          cashLoanEmi: result.cashLoanEmi,
+          uniformDeduction: result.uniformDeduction,
           totalDeductions: result.totalDeductions,
           netSalary: result.netSalary,
           gratuity: result.gratuity,
@@ -127,6 +166,12 @@ export async function POST(req: NextRequest) {
           esiEmployee: result.esiEmployee,
           esiEmployer: result.esiEmployer,
           professionalTax: result.professionalTax,
+          bankAdvance: result.bankAdvance,
+          cashAdvance: result.cashAdvance,
+          jifyAdvance: result.jifyAdvance,
+          loanEmi: result.loanEmi,
+          cashLoanEmi: result.cashLoanEmi,
+          uniformDeduction: result.uniformDeduction,
           totalDeductions: result.totalDeductions,
           netSalary: result.netSalary,
           gratuity: result.gratuity,
