@@ -4,13 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { Wallet, CreditCard, Landmark, TrendingDown, Plus } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { AdvanceModal } from "@/components/AdvanceModal";
+import { LoanModal } from "@/components/LoanModal";
+import { AdvanceHistoryModal } from "@/components/AdvanceHistoryModal";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
 
-type Tab = "advances" | "loans";
+type Tab = "advances" | "loans" | "outstanding";
 
 interface Entity { id: string; code: string; name: string; }
 
@@ -112,11 +114,15 @@ export default function AdvancesPage() {
   const [activeTab, setActiveTab] = useState<Tab>("advances");
   const [summary, setSummary] = useState<AdvanceSummary[]>([]);
   const [loans, setLoans] = useState<LoanAccount[]>([]);
+  const [outstanding, setOutstanding] = useState<LoanAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [loansLoading, setLoansLoading] = useState(false);
+  const [outstandingLoading, setOutstandingLoading] = useState(false);
 
-  const [showModal, setShowModal] = useState(false);
+  const [showAdvanceModal, setShowAdvanceModal] = useState(false);
   const [editEntry, setEditEntry] = useState<AdvanceEntry | null>(null);
+  const [showLoanModal, setShowLoanModal] = useState(false);
+  const [historyEmployeeId, setHistoryEmployeeId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/form-options")
@@ -147,8 +153,18 @@ export default function AdvancesPage() {
       .catch(() => setLoansLoading(false));
   }, [entityId]);
 
+  const fetchOutstanding = useCallback(() => {
+    if (!entityId) return;
+    setOutstandingLoading(true);
+    fetch(`/api/advances/outstanding?entityId=${entityId}`)
+      .then((r) => r.json())
+      .then((data: LoanAccount[]) => { setOutstanding(data ?? []); setOutstandingLoading(false); })
+      .catch(() => setOutstandingLoading(false));
+  }, [entityId]);
+
   useEffect(() => { fetchSummary(); }, [fetchSummary]);
   useEffect(() => { fetchLoans(); }, [fetchLoans]);
+  useEffect(() => { fetchOutstanding(); }, [fetchOutstanding]);
 
   async function handleCloseLoan(loanId: string) {
     if (!confirm("Close this loan account? The EMI will no longer be deducted.")) return;
@@ -158,6 +174,7 @@ export default function AdvancesPage() {
       body: JSON.stringify({ status: "CLOSED" }),
     });
     fetchLoans();
+    fetchOutstanding();
   }
 
   // Metrics
@@ -178,9 +195,12 @@ export default function AdvancesPage() {
     { bank: 0, cash: 0, jify: 0, loanEmi: 0, cashLoanEmi: 0, total: 0 }
   );
 
+  const totalOutstandingAmt = outstanding.reduce((a, l) => a + l.outstandingBalance, 0);
+
   const TABS: { id: Tab; label: string }[] = [
     { id: "advances", label: "Monthly Advances" },
     { id: "loans", label: "Loans" },
+    { id: "outstanding", label: "Outstanding Report" },
   ];
 
   return (
@@ -210,7 +230,7 @@ export default function AdvancesPage() {
         <MetricCard color="red" icon={<TrendingDown size={16} />} value={fmtRupee(totalLoans)} label="Loan EMIs" />
       </div>
 
-      {/* Tabs + Add button */}
+      {/* Tabs + action buttons */}
       <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--glass-border)", background: "var(--bg-2)", paddingLeft: 16, paddingRight: 16 }}>
         <div style={{ display: "flex", flex: 1 }}>
           {TABS.map((tab) => {
@@ -228,18 +248,33 @@ export default function AdvancesPage() {
             );
           })}
         </div>
-        <button
-          onClick={() => { setEditEntry(null); setShowModal(true); }}
-          style={{ ...btnPrimary, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px" }}
-        >
-          <Plus size={14} />
-          Add Advance
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {activeTab === "loans" && (
+            <button
+              onClick={() => setShowLoanModal(true)}
+              style={{ ...btnPrimary, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px" }}
+            >
+              <Plus size={14} />
+              Issue Loan
+            </button>
+          )}
+          {activeTab === "advances" && (
+            <button
+              onClick={() => { setEditEntry(null); setShowAdvanceModal(true); }}
+              style={{ ...btnPrimary, display: "flex", alignItems: "center", gap: 6, padding: "6px 12px" }}
+            >
+              <Plus size={14} />
+              Add Advance
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Table */}
+      {/* Table area */}
       <div className="glass-card" style={{ overflow: "hidden", borderRadius: "0 0 var(--radius) var(--radius)" }}>
-        {activeTab === "advances" ? (
+
+        {/* Monthly Advances tab */}
+        {activeTab === "advances" && (
           loading ? (
             <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>Loading\u2026</div>
           ) : summary.length === 0 ? (
@@ -282,9 +317,8 @@ export default function AdvancesPage() {
                       </td>
                       <td style={{ ...tdBase, textAlign: "center" }}>
                         <span
-                          style={{ fontSize: 11, color: "var(--blue)", cursor: "pointer", textDecoration: "underline" }}
+                          style={{ fontSize: 11, color: "var(--blue)", cursor: "pointer", textDecoration: "underline", marginRight: 10 }}
                           onClick={() => {
-                            // Open modal in edit mode — pass a synthetic entry
                             const synthetic: AdvanceEntry = {
                               id: "",
                               employeeId: s.employeeId,
@@ -295,10 +329,16 @@ export default function AdvancesPage() {
                               remarks: null,
                             };
                             setEditEntry(synthetic);
-                            setShowModal(true);
+                            setShowAdvanceModal(true);
                           }}
                         >
                           Edit
+                        </span>
+                        <span
+                          style={{ fontSize: 11, color: "var(--text-3)", cursor: "pointer", textDecoration: "underline" }}
+                          onClick={() => setHistoryEmployeeId(s.employeeId)}
+                        >
+                          History
                         </span>
                       </td>
                     </tr>
@@ -321,13 +361,15 @@ export default function AdvancesPage() {
               </table>
             </div>
           )
-        ) : (
-          /* Loans Tab */
+        )}
+
+        {/* Loans tab */}
+        {activeTab === "loans" && (
           loansLoading ? (
             <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>Loading\u2026</div>
           ) : loans.length === 0 ? (
             <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>
-              No loan accounts found for this entity.
+              No loan accounts found. Click \u201cIssue Loan\u201d to create one.
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
@@ -370,6 +412,12 @@ export default function AdvancesPage() {
                           </span>
                         </td>
                         <td style={{ ...tdBase, textAlign: "center" }}>
+                          <span
+                            style={{ fontSize: 11, color: "var(--text-3)", cursor: "pointer", textDecoration: "underline", marginRight: isActive ? 10 : 0 }}
+                            onClick={() => setHistoryEmployeeId(loan.employeeId)}
+                          >
+                            History
+                          </span>
                           {isActive && (
                             <span
                               style={{ fontSize: 11, color: "var(--red)", cursor: "pointer", textDecoration: "underline" }}
@@ -387,17 +435,127 @@ export default function AdvancesPage() {
             </div>
           )
         )}
+
+        {/* Outstanding Report tab */}
+        {activeTab === "outstanding" && (
+          outstandingLoading ? (
+            <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>Loading\u2026</div>
+          ) : outstanding.length === 0 ? (
+            <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>
+              No active loans with outstanding balances.
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              {/* Summary banner */}
+              <div style={{ padding: "12px 20px", background: "var(--red-bg)", borderBottom: "1px solid var(--glass-border)", display: "flex", gap: 32, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Active Loans</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--red)" }}>{outstanding.length}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Total Outstanding</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--red)" }}>{fmtRupee(totalOutstandingAmt)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Monthly EMI Burden</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--amber)" }}>{fmtRupee(outstanding.reduce((a, l) => a + l.emiAmount, 0))}</div>
+                </div>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thBase, textAlign: "left" }}>Code</th>
+                    <th style={{ ...thBase, textAlign: "left" }}>Name</th>
+                    <th style={{ ...thBase, textAlign: "left" }}>Dept</th>
+                    <th style={{ ...thBase, textAlign: "left" }}>Loan Type</th>
+                    <th style={{ ...thBase, textAlign: "right" }}>Principal</th>
+                    <th style={{ ...thBase, textAlign: "right" }}>EMI / mo</th>
+                    <th style={{ ...thBase, textAlign: "right" }}>Paid</th>
+                    <th style={{ ...thBase, textAlign: "right", color: "var(--red)" }}>Outstanding</th>
+                    <th style={{ ...thBase, textAlign: "right" }}>Started</th>
+                    <th style={{ ...thBase, textAlign: "center" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {outstanding.map((loan) => (
+                    <tr key={loan.id}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--glass-hover)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <td style={{ ...tdBase, color: "var(--text-3)", fontFamily: "monospace", fontSize: 11 }}>{loan.employee.employeeCode}</td>
+                      <td style={{ ...tdBase, fontWeight: 500, color: "var(--text-1)" }}>{loan.employee.fullName}</td>
+                      <td style={{ ...tdBase, color: "var(--text-3)" }}>{loan.employee.department?.name || "\u2014"}</td>
+                      <td style={{ ...tdBase }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
+                          background: loan.loanType === "EMPLOYEE_LOAN" ? "var(--blue-bg, var(--glass))" : "var(--amber-bg)",
+                          color: loan.loanType === "EMPLOYEE_LOAN" ? "var(--blue)" : "var(--amber)",
+                        }}>
+                          {LOAN_TYPE_LABEL[loan.loanType] ?? loan.loanType}
+                        </span>
+                      </td>
+                      <td style={{ ...tdBase, textAlign: "right" }}>{fmt(loan.principalAmount)}</td>
+                      <td style={{ ...tdBase, textAlign: "right", color: "var(--amber)" }}>{fmt(loan.emiAmount)}</td>
+                      <td style={{ ...tdBase, textAlign: "right", color: "var(--green)" }}>{fmt(loan.totalPaid)}</td>
+                      <td style={{ ...tdBase, textAlign: "right", color: "var(--red)", fontWeight: 700 }}>{fmt(loan.outstandingBalance)}</td>
+                      <td style={{ ...tdBase, textAlign: "right", color: "var(--text-3)" }}>{MONTHS[loan.startMonth - 1].slice(0, 3)} {loan.startYear}</td>
+                      <td style={{ ...tdBase, textAlign: "center" }}>
+                        <span
+                          style={{ fontSize: 11, color: "var(--text-3)", cursor: "pointer", textDecoration: "underline" }}
+                          onClick={() => setHistoryEmployeeId(loan.employeeId)}
+                        >
+                          History
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: "var(--bg-2)" }}>
+                    <td colSpan={4} style={{ ...tdBase, fontWeight: 700, color: "var(--text-1)", borderTop: "2px solid var(--glass-border)" }}>
+                      TOTALS ({outstanding.length} active loans)
+                    </td>
+                    <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, borderTop: "2px solid var(--glass-border)" }}>{fmt(outstanding.reduce((a, l) => a + l.principalAmount, 0))}</td>
+                    <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: "var(--amber)", borderTop: "2px solid var(--glass-border)" }}>{fmt(outstanding.reduce((a, l) => a + l.emiAmount, 0))}</td>
+                    <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: "var(--green)", borderTop: "2px solid var(--glass-border)" }}>{fmt(outstanding.reduce((a, l) => a + l.totalPaid, 0))}</td>
+                    <td style={{ ...tdBase, textAlign: "right", fontWeight: 700, color: "var(--red)", borderTop: "2px solid var(--glass-border)" }}>{fmt(totalOutstandingAmt)}</td>
+                    <td colSpan={2} style={{ ...tdBase, borderTop: "2px solid var(--glass-border)" }}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        )}
       </div>
 
-      {/* Modal */}
-      {showModal && (
+      {/* Advance Modal */}
+      {showAdvanceModal && (
         <AdvanceModal
           month={month}
           year={year}
           entityId={entityId}
           editEntry={editEntry?.id ? editEntry : null}
-          onClose={() => { setShowModal(false); setEditEntry(null); }}
+          onClose={() => { setShowAdvanceModal(false); setEditEntry(null); }}
           onSaved={() => { fetchSummary(); }}
+        />
+      )}
+
+      {/* Loan Modal */}
+      {showLoanModal && (
+        <LoanModal
+          entityId={entityId}
+          defaultMonth={month}
+          defaultYear={year}
+          onClose={() => setShowLoanModal(false)}
+          onSaved={() => { fetchLoans(); fetchOutstanding(); }}
+        />
+      )}
+
+      {/* Advance History Modal */}
+      {historyEmployeeId && (
+        <AdvanceHistoryModal
+          employeeId={historyEmployeeId}
+          onClose={() => setHistoryEmployeeId(null)}
         />
       )}
     </div>

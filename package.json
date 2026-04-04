@@ -10,7 +10,8 @@
     "db:seed": "npx tsx prisma/seed.ts",
     "db:seed-attendance": "npx tsx prisma/seed-attendance.ts",
     "seed:march": "npx tsx prisma/seed-march.ts",
-    "seed:advances": "npx tsx prisma/seed-advances.ts"
+    "seed:advances": "npx tsx prisma/seed-advances.ts",
+    "seed:loans": "npx tsx prisma/seed-loans.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
