@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Entity {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  legalName String?
+  pfCode    String?
+  esiCode   String?
+  ptCode    String?
+  gstin     String?
+  locations Location[]
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Location {
+  id        String     @id @default(cuid())
+  code      String
+  name      String
+  entityId  String
+  entity    Entity     @relation(fields: [entityId], references: [id])
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([entityId, code])
+}
+
+model Department {
+  id             String          @id @default(cuid())
+  name           String          @unique
+  subDepartments SubDepartment[]
+  employees      Employee[]
+  createdAt      DateTime        @default(now())
+}
+
+model SubDepartment {
+  id           String     @id @default(cuid())
+  name         String
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  employees    Employee[]
+  createdAt    DateTime   @default(now())
+
+  @@unique([departmentId, name])
+}
+
+model Designation {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  employees Employee[]
+  createdAt DateTime   @default(now())
+}
+
+model ShiftCode {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  startTime String?
+  endTime   String?
+  employees Employee[]
+  createdAt DateTime   @default(now())
+}
+
+model Employee {
+  id               String    @id @default(cuid())
+  employeeCode     String    @unique
+  fullName         String
+  careOfName       String?
+  careOfRelation   String?
+  dateOfBirth      DateTime?
+  gender           String?
+  bloodGroup       String?
+  aadhaarNumber    String?
+  panNumber        String?
+  contact1         String?
+  contact2         String?
+  presentAddress   String?
+  permanentAddress String?
+  profilePhotoUrl  String?
+
+  bankAccountNo String?
+  bankName      String?
+  bankIfsc      String?
+  bankBranch    String?
+
+  uanNumber String?
+  uanStatus String @default("NOT_GENERATED")
+  esiNumber String?
+  esiStatus String @default("NOT_GENERATED")
+
+  entityId             String
+  entity               Entity         @relation(fields: [entityId], references: [id])
+  locationId           String
+  location             Location       @relation(fields: [locationId], references: [id])
+  departmentId         String
+  department           Department     @relation(fields: [departmentId], references: [id])
+  subDepartmentId      String?
+  subDepartment        SubDepartment? @relation(fields: [subDepartmentId], references: [id])
+  designationId        String
+  designation          Designation    @relation(fields: [designationId], references: [id])
+  shiftCodeId          String?
+  shiftCode            ShiftCode?     @relation(fields: [shiftCodeId], references: [id])
+  dateOfJoining        DateTime
+  dateOfJoiningCurrent DateTime?
+  bonusMonth           Int?
+  appraisalDate        DateTime?
+  status               String         @default("ACTIVE")
+  separationDate       DateTime?
+
+  salary       Decimal @default(0) @db.Decimal(12, 2)
+  basic        Decimal @default(0) @db.Decimal(12, 2)
+  hra          Decimal @default(0) @db.Decimal(12, 2)
+  specialAllow Decimal @default(0) @db.Decimal(12, 2)
+  travelAllow  Decimal @default(0) @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entityId])
+  @@index([locationId])
+  @@index([departmentId])
+  @@index([status])
+}
