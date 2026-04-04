@@ -49,7 +49,8 @@ export function Sidebar({ employeeCount }: SidebarProps) {
     {
       title: "Payroll",
       items: [
-        { label: "Salary Processing", href: "/salary", icon: <IndianRupee size={18} />, badge: "Due", badgeColor: "amber" },
+        { label: "Payroll", href: "/payroll", icon: <IndianRupee size={18} /> },
+        { label: "Salary Processing", href: "/salary", icon: <Wallet size={18} />, badge: "Due", badgeColor: "amber" },
         { label: "Advances & Loans", href: "/advances", icon: <Wallet size={18} /> },
       ],
     },
