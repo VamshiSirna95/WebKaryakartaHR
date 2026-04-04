@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { CalendarDays, CheckCircle, Clock, Users } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { LeaveApplyModal } from "@/components/LeaveApplyModal";
+import { LeaveCalendar } from "@/components/LeaveCalendar";
 
-type Tab = "requests" | "balances" | "types";
+type Tab = "requests" | "balances" | "types" | "calendar";
 
 interface Entity { id: string; code: string; name: string; }
 
@@ -210,6 +211,7 @@ export default function LeavesPage() {
     { id: "requests", label: "Requests" },
     { id: "balances", label: "Balances" },
     { id: "types", label: "Leave Types" },
+    { id: "calendar", label: "Calendar" },
   ];
 
   return (
@@ -403,7 +405,7 @@ export default function LeavesPage() {
               </table>
             </div>
           )
-        ) : (
+        ) : activeTab === "types" ? (
           /* Leave Types Tab */
           leaveTypes.length === 0 ? (
             <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-3)" }}>No leave types configured. Seed leave types first.</div>
@@ -450,7 +452,10 @@ export default function LeavesPage() {
               </table>
             </div>
           )
-        )}
+        ) : activeTab === "calendar" ? (
+          /* Calendar Tab */
+          <LeaveCalendar entityId={entityId} />
+        ) : null}
       </div>
 
       {showApplyModal && (
