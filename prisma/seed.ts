@@ -6,7 +6,10 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  // Clean existing data
+  // Clean existing data (in dependency order)
+  await prisma.attendanceRecord.deleteMany();
+  await prisma.attendanceMonth.deleteMany();
+  await prisma.holiday.deleteMany();
   await prisma.employee.deleteMany();
   await prisma.subDepartment.deleteMany();
   await prisma.shiftCode.deleteMany();
