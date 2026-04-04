@@ -6,7 +6,7 @@ import {
   LayoutGrid,
   Users,
   Calendar,
-  Clock,
+  CalendarDays,
   IndianRupee,
   Wallet,
   Shield,
@@ -43,7 +43,7 @@ export function Sidebar({ employeeCount }: SidebarProps) {
       title: "Operations",
       items: [
         { label: "Attendance", href: "/attendance", icon: <Calendar size={18} /> },
-        { label: "Leave", href: "/leave", icon: <Clock size={18} /> },
+        { label: "Leaves", href: "/leaves", icon: <CalendarDays size={18} /> },
       ],
     },
     {
@@ -51,7 +51,7 @@ export function Sidebar({ employeeCount }: SidebarProps) {
       items: [
         { label: "Payroll", href: "/payroll", icon: <IndianRupee size={18} /> },
         { label: "Salary Processing", href: "/salary", icon: <Wallet size={18} />, badge: "Due", badgeColor: "amber" },
-        { label: "Advances & Loans", href: "/advances", icon: <Wallet size={18} /> },
+        { label: "Advances &amp; Loans", href: "/advances", icon: <Wallet size={18} /> },
       ],
     },
     {
