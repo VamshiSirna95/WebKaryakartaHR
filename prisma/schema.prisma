@@ -127,6 +127,8 @@ model Employee {
 
   attendanceRecords AttendanceRecord[]
   payrollDetails    PayrollDetail[]
+  advanceEntries    AdvanceEntry[]
+  loanAccounts      LoanAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -296,4 +298,45 @@ model PayrollDetail {
 
   @@unique([payrollRunId, employeeId])
   @@map("payroll_details")
+}
+
+model AdvanceEntry {
+  id         String    @id @default(cuid())
+  employeeId String    @map("employee_id")
+  type       String
+  amount     Float
+  month      Int
+  year       Int
+  date       DateTime?
+  remarks    String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@index([year, month])
+  @@map("advance_entries")
+}
+
+model LoanAccount {
+  id                 String   @id @default(cuid())
+  employeeId         String   @map("employee_id")
+  loanType           String   @map("loan_type")
+  principalAmount    Float    @map("principal_amount")
+  emiAmount          Float    @map("emi_amount")
+  tenure             Int
+  startMonth         Int      @map("start_month")
+  startYear          Int      @map("start_year")
+  totalPaid          Float    @default(0) @map("total_paid")
+  outstandingBalance Float    @map("outstanding_balance")
+  status             String   @default("ACTIVE")
+  remarks            String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  employee           Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@map("loan_accounts")
 }
