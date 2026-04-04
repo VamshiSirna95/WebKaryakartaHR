@@ -117,7 +117,7 @@ export function EmployeeTable({ employees }: EmployeeTableProps) {
                   </td>
                   <td style={{ padding: "12px 16px" }}>
                     <Link
-                      href={`/employees/${emp.id}`}
+                      href={`/employees/${emp.id}/edit`}
                       style={{
                         padding: "5px 12px",
                         borderRadius: "var(--radius-xs)",
