@@ -1,17 +1,27 @@
 import { db } from "@/lib/db";
 import { formatINR } from "@/lib/utils";
-import { Users, UserCheck, IndianRupee, Shield } from "lucide-react";
+import { Users, UserCheck, IndianRupee, Shield, CalendarDays } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { ModuleCard } from "@/components/ui/ModuleCard";
 import Link from "next/link";
 
 export default async function DashboardPage() {
-  const [totalEmployees, activeEmployees, probationEmployees, salaryAgg] =
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [totalEmployees, activeEmployees, probationEmployees, salaryAgg, onLeaveToday] =
     await Promise.all([
       db.employee.count(),
       db.employee.count({ where: { status: "ACTIVE" } }),
       db.employee.count({ where: { status: "PROBATION" } }),
       db.employee.aggregate({ _sum: { salary: true } }),
+      db.leaveRequest.count({
+        where: {
+          status: "APPROVED",
+          fromDate: { lte: today },
+          toDate: { gte: today },
+        },
+      }),
     ]);
 
   const totalSalary = Number(salaryAgg._sum.salary ?? 0);
@@ -22,7 +32,7 @@ export default async function DashboardPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateColumns: "repeat(5, 1fr)",
           gap: 16,
           marginBottom: 24,
         }}
@@ -52,6 +62,12 @@ export default async function DashboardPage() {
           value="3"
           label="Compliance Alerts"
           change={{ value: "Action needed", direction: "down" }}
+        />
+        <MetricCard
+          color="green"
+          icon={<CalendarDays size={16} />}
+          value={String(onLeaveToday)}
+          label="On Leave Today"
         />
       </div>
 
@@ -204,7 +220,7 @@ export default async function DashboardPage() {
           ]}
           buttonLabel="Manage Leave"
           buttonColor="teal"
-          href="/leave"
+          href="/leaves"
           canvasType="pulse"
         />
         <ModuleCard

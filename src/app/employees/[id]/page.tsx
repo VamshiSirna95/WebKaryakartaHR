@@ -11,17 +11,32 @@ export default async function EmployeeDetailPage({
 }) {
   const { id } = await params;
 
-  const emp = await db.employee.findUnique({
-    where: { id },
-    include: {
-      entity: true,
-      location: true,
-      department: true,
-      subDepartment: true,
-      designation: true,
-      shiftCode: true,
-    },
-  });
+  const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+
+  const [emp, leaveBalances, leaveRequests] = await Promise.all([
+    db.employee.findUnique({
+      where: { id },
+      include: {
+        entity: true,
+        location: true,
+        department: true,
+        subDepartment: true,
+        designation: true,
+        shiftCode: true,
+      },
+    }),
+    db.leaveBalance.findMany({
+      where: { employeeId: id, year: currentFY },
+      include: { leaveType: { select: { code: true, name: true, annualQuota: true } } },
+      orderBy: { leaveType: { code: "asc" } },
+    }),
+    db.leaveRequest.findMany({
+      where: { employeeId: id },
+      include: { leaveType: { select: { code: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
 
   if (!emp) notFound();
 
@@ -64,6 +79,77 @@ export default async function EmployeeDetailPage({
           Edit
         </Link>
       </div>
+
+      {/* Leave Summary */}
+      {leaveBalances.length > 0 && (
+        <div className="glass-card" style={{ overflow: "hidden", marginBottom: 20 }}>
+          <div style={{ padding: "12px 20px", borderBottom: "1px solid var(--glass-border)", background: "var(--bg-2)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>
+              Leave Summary (FY {currentFY}-{String(currentFY + 1).slice(2)})
+            </h3>
+            <Link href="/leaves" style={{ fontSize: 11, color: "var(--blue)", textDecoration: "none", fontWeight: 600 }}>
+              View all in Leaves module →
+            </Link>
+          </div>
+          <div style={{ padding: "16px 20px" }}>
+            {/* Balance cards */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+              {leaveBalances.map((b) => {
+                const pct = b.credited > 0 ? b.balance / b.credited : 1;
+                const color = pct > 0.5 ? "var(--green)" : pct > 0.25 ? "var(--amber)" : "var(--red)";
+                return (
+                  <div key={b.id} style={{ padding: "8px 14px", background: "var(--glass)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius-xs)", textAlign: "center", minWidth: 80 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-4)", textTransform: "uppercase", marginBottom: 4 }}>{b.leaveType.code}</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color }}>
+                      {b.balance}<span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 400 }}>/{b.credited}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-4)" }}>{b.used} used</div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Recent requests */}
+            {leaveRequests.length > 0 && (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      {["Type", "From", "To", "Days", "Status", "Reason"].map((h) => (
+                        <th key={h} style={{ padding: "8px 10px", fontSize: 10, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid var(--glass-border)", background: "var(--bg-2)", textAlign: "left" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leaveRequests.map((r) => {
+                      const statusColors: Record<string, { bg: string; color: string }> = {
+                        PENDING: { bg: "var(--amber-bg)", color: "var(--amber)" },
+                        APPROVED: { bg: "var(--green-bg)", color: "var(--green)" },
+                        REJECTED: { bg: "var(--red-bg)", color: "var(--red)" },
+                        CANCELLED: { bg: "var(--glass)", color: "var(--text-3)" },
+                      };
+                      const sc = statusColors[r.status] ?? statusColors.CANCELLED;
+                      return (
+                        <tr key={r.id}>
+                          <td style={{ padding: "7px 10px", fontSize: 11, color: "var(--text-2)", borderBottom: "1px solid var(--glass-border)" }}>
+                            <span style={{ fontWeight: 700, color: "var(--blue)" }}>{r.leaveType.code}</span>
+                          </td>
+                          <td style={{ padding: "7px 10px", fontSize: 11, color: "var(--text-2)", borderBottom: "1px solid var(--glass-border)" }}>{formatDate(r.fromDate)}</td>
+                          <td style={{ padding: "7px 10px", fontSize: 11, color: "var(--text-2)", borderBottom: "1px solid var(--glass-border)" }}>{formatDate(r.toDate)}</td>
+                          <td style={{ padding: "7px 10px", fontSize: 11, fontWeight: 600, color: "var(--text-1)", borderBottom: "1px solid var(--glass-border)", textAlign: "center" }}>{r.days}</td>
+                          <td style={{ padding: "7px 10px", borderBottom: "1px solid var(--glass-border)" }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, ...sc }}>{r.status}</span>
+                          </td>
+                          <td style={{ padding: "7px 10px", fontSize: 11, color: "var(--text-3)", borderBottom: "1px solid var(--glass-border)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.reason}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Two-column layout */}
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
