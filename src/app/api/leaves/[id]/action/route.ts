@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { syncLeaveToAttendance } from "@/lib/leave-attendance-sync";
 
 function getCurrentFY(): number {
   const now = new Date();
@@ -27,6 +28,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (!request) return NextResponse.json({ error: "Leave request not found" }, { status: 404 });
 
+    const wasApproved = request.status === "APPROVED";
+
     if (action === "APPROVE") {
       if (request.status !== "PENDING") {
         return NextResponse.json({ error: "Only PENDING requests can be approved" }, { status: 400 });
@@ -45,6 +48,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           data: { used: { increment: request.days }, balance: { decrement: request.days } },
         });
       }
+
+      // Sync to attendance
+      await syncLeaveToAttendance(request, "MARK").catch((err) => {
+        console.error("Attendance sync error (non-fatal):", err);
+      });
+
     } else if (action === "REJECT") {
       if (request.status !== "PENDING") {
         return NextResponse.json({ error: "Only PENDING requests can be rejected" }, { status: 400 });
@@ -59,7 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       // Reverse balance if was APPROVED
-      if (request.status === "APPROVED" && request.leaveType.code !== "LOP") {
+      if (wasApproved && request.leaveType.code !== "LOP") {
         const fyYear = getCurrentFY();
         await db.leaveBalance.updateMany({
           where: { employeeId: request.employeeId, leaveTypeId: request.leaveTypeId, year: fyYear },
@@ -68,6 +77,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
 
       await db.leaveRequest.update({ where: { id }, data: { status: "CANCELLED" } });
+
+      // Unmark attendance if request was previously APPROVED
+      if (wasApproved) {
+        await syncLeaveToAttendance(request, "UNMARK").catch((err) => {
+          console.error("Attendance unsync error (non-fatal):", err);
+        });
+      }
     }
 
     const updated = await db.leaveRequest.findUnique({
