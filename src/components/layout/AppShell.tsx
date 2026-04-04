@@ -1,24 +1,12 @@
-"use client";
+import { db } from "@/lib/db";
+import { AppShellClient } from "./AppShellClient";
 
-import { Sidebar } from "./Sidebar";
-import { Topbar } from "./Topbar";
-
-export function AppShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <Sidebar />
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <Topbar />
-        <main
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: 24,
-          }}
-        >
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+export async function AppShell({ children }: { children: React.ReactNode }) {
+  let employeeCount = 0;
+  try {
+    employeeCount = await db.employee.count();
+  } catch {
+    // DB unavailable — use 0
+  }
+  return <AppShellClient employeeCount={employeeCount}>{children}</AppShellClient>;
 }

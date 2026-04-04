@@ -14,63 +14,59 @@ import {
   Settings,
 } from "lucide-react";
 
-interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ReactNode;
-  badge?: string;
-  badgeColor?: string;
+interface SidebarProps {
+  employeeCount: number;
 }
 
-interface NavGroup {
-  title: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    title: "Overview",
-    items: [
-      { label: "Dashboard", href: "/dashboard", icon: <LayoutGrid size={18} /> },
-    ],
-  },
-  {
-    title: "People",
-    items: [
-      { label: "Employees", href: "/employees", icon: <Users size={18} />, badge: "78" },
-    ],
-  },
-  {
-    title: "Operations",
-    items: [
-      { label: "Attendance", href: "/attendance", icon: <Calendar size={18} /> },
-      { label: "Leave", href: "/leave", icon: <Clock size={18} /> },
-    ],
-  },
-  {
-    title: "Payroll",
-    items: [
-      { label: "Salary Processing", href: "/salary", icon: <IndianRupee size={18} />, badge: "Due", badgeColor: "amber" },
-      { label: "Advances & Loans", href: "/advances", icon: <Wallet size={18} /> },
-    ],
-  },
-  {
-    title: "Compliance",
-    items: [
-      { label: "PF/ESI/PT", href: "/compliance", icon: <Shield size={18} />, badge: "3", badgeColor: "red" },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { label: "Reports", href: "/reports", icon: <FileText size={18} /> },
-      { label: "Settings", href: "/settings", icon: <Settings size={18} /> },
-    ],
-  },
-];
-
-export function Sidebar() {
+export function Sidebar({ employeeCount }: SidebarProps) {
   const pathname = usePathname();
+
+  const NAV_GROUPS = [
+    {
+      title: "Overview",
+      items: [
+        { label: "Dashboard", href: "/dashboard", icon: <LayoutGrid size={18} /> },
+      ],
+    },
+    {
+      title: "People",
+      items: [
+        {
+          label: "Employees",
+          href: "/employees",
+          icon: <Users size={18} />,
+          badge: employeeCount > 0 ? String(employeeCount) : undefined,
+        },
+      ],
+    },
+    {
+      title: "Operations",
+      items: [
+        { label: "Attendance", href: "/attendance", icon: <Calendar size={18} /> },
+        { label: "Leave", href: "/leave", icon: <Clock size={18} /> },
+      ],
+    },
+    {
+      title: "Payroll",
+      items: [
+        { label: "Salary Processing", href: "/salary", icon: <IndianRupee size={18} />, badge: "Due", badgeColor: "amber" },
+        { label: "Advances & Loans", href: "/advances", icon: <Wallet size={18} /> },
+      ],
+    },
+    {
+      title: "Compliance",
+      items: [
+        { label: "PF/ESI/PT", href: "/compliance", icon: <Shield size={18} />, badge: "3", badgeColor: "red" },
+      ],
+    },
+    {
+      title: "System",
+      items: [
+        { label: "Reports", href: "/reports", icon: <FileText size={18} /> },
+        { label: "Settings", href: "/settings", icon: <Settings size={18} /> },
+      ],
+    },
+  ];
 
   return (
     <aside
@@ -167,23 +163,25 @@ export function Sidebar() {
                   )}
                   <span style={{ opacity: isActive ? 1 : 0.7, display: "flex" }}>{item.icon}</span>
                   <span style={{ flex: 1 }}>{item.label}</span>
-                  {item.badge && (
+                  {"badge" in item && item.badge && (
                     <span
                       style={{
                         fontSize: 10,
                         fontWeight: 600,
                         padding: "2px 6px",
                         borderRadius: 4,
-                        background: item.badgeColor === "red"
-                          ? "var(--red-bg)"
-                          : item.badgeColor === "amber"
-                          ? "var(--amber-bg)"
-                          : "var(--glass)",
-                        color: item.badgeColor === "red"
-                          ? "var(--red)"
-                          : item.badgeColor === "amber"
-                          ? "var(--amber)"
-                          : "var(--text-3)",
+                        background:
+                          "badgeColor" in item && item.badgeColor === "red"
+                            ? "var(--red-bg)"
+                            : "badgeColor" in item && item.badgeColor === "amber"
+                            ? "var(--amber-bg)"
+                            : "var(--glass)",
+                        color:
+                          "badgeColor" in item && item.badgeColor === "red"
+                            ? "var(--red)"
+                            : "badgeColor" in item && item.badgeColor === "amber"
+                            ? "var(--amber)"
+                            : "var(--text-3)",
                       }}
                     >
                       {item.badge}

@@ -37,8 +37,8 @@ export default async function DashboardPage() {
         <MetricCard
           color="green"
           icon={<UserCheck size={16} />}
-          value="65 / 78"
-          label="Present Today (84%)"
+          value={`— / ${totalEmployees}`}
+          label="Present Today (no data)"
         />
         <MetricCard
           color="amber"

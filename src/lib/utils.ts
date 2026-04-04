@@ -6,37 +6,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format a number in Indian notation: ₹X,XX,XXX
+ * Format a number in Indian notation: ₹X,XX,XXX (lakh system)
  */
 export function formatINR(amount: number | string): string {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return "₹0";
-
-  const isNegative = num < 0;
-  const abs = Math.abs(num);
-  const [intPart, decPart] = abs.toFixed(2).split(".");
-
-  // Indian grouping: last 3 digits, then groups of 2
-  let result = "";
-  const len = intPart.length;
-  if (len <= 3) {
-    result = intPart;
-  } else {
-    result = intPart.slice(len - 3);
-    let remaining = intPart.slice(0, len - 3);
-    while (remaining.length > 2) {
-      result = remaining.slice(remaining.length - 2) + "," + result;
-      remaining = remaining.slice(0, remaining.length - 2);
-    }
-    if (remaining.length > 0) {
-      result = remaining + "," + result;
-    }
-  }
-
-  // Only show decimals if non-zero
-  const formatted =
-    decPart && decPart !== "00" ? `${result}.${decPart}` : result;
-  return `${isNegative ? "-" : ""}₹${formatted}`;
+  return num.toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 }
 
 /**
@@ -45,28 +25,7 @@ export function formatINR(amount: number | string): string {
 export function formatIndianNumber(amount: number | string): string {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
   if (isNaN(num)) return "0";
-
-  const isNegative = num < 0;
-  const abs = Math.abs(num);
-  const intPart = Math.floor(abs).toString();
-
-  let result = "";
-  const len = intPart.length;
-  if (len <= 3) {
-    result = intPart;
-  } else {
-    result = intPart.slice(len - 3);
-    let remaining = intPart.slice(0, len - 3);
-    while (remaining.length > 2) {
-      result = remaining.slice(remaining.length - 2) + "," + result;
-      remaining = remaining.slice(0, remaining.length - 2);
-    }
-    if (remaining.length > 0) {
-      result = remaining + "," + result;
-    }
-  }
-
-  return `${isNegative ? "-" : ""}${result}`;
+  return Math.round(num).toLocaleString("en-IN");
 }
 
 export function formatDate(date: Date | string): string {
