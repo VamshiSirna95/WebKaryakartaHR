@@ -11,7 +11,8 @@
     "db:seed-attendance": "npx tsx prisma/seed-attendance.ts",
     "seed:march": "npx tsx prisma/seed-march.ts",
     "seed:advances": "npx tsx prisma/seed-advances.ts",
-    "seed:loans": "npx tsx prisma/seed-loans.ts"
+    "seed:loans": "npx tsx prisma/seed-loans.ts",
+    "seed:bank": "npx tsx prisma/seed-bank.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
@@ -19,12 +20,14 @@
     "@prisma/adapter-pg-worker": "^6.9.0",
     "@prisma/client": "^7.6.0",
     "@prisma/pg-worker": "^6.9.0",
+    "@types/pdfmake": "^0.3.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.0",
     "lucide-react": "^1.7.0",
     "next": "16.2.2",
     "next-auth": "^5.0.0-beta.30",
+    "pdfmake": "^0.3.7",
     "pg": "^8.20.0",
     "prisma": "^7.6.0",
     "react": "19.2.4",
