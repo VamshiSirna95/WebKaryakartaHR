@@ -1,6 +1,7 @@
 "use client";
 
-import { X } from "lucide-react";
+import { useState } from "react";
+import { X, Download } from "lucide-react";
 
 export interface PayslipDetail {
   id: string;
@@ -73,6 +74,22 @@ function Row({ label, value, red }: { label: string; value: number; red?: boolea
 
 export function PayslipModal({ detail, month, year, entityName, onClose }: Props) {
   const emp = detail.employee;
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownloadPdf() {
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/payroll/payslip?detailId=${detail.id}`);
+      if (!res.ok) { alert("Failed to generate PDF"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Payslip_${emp.employeeCode}_${MONTHS[month - 1]}_${year}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Download failed"); } finally { setDownloading(false); }
+  }
 
   return (
     <div
@@ -198,6 +215,29 @@ export function PayslipModal({ detail, month, year, entityName, onClose }: Props
         <div style={{ borderTop: "2px solid var(--glass-border)", padding: "16px 24px", textAlign: "center", background: "rgba(52,199,89,0.04)" }}>
           <div style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Net Pay</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: "var(--green)" }}>{r(detail.netSalary)}</div>
+          <button
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+            style={{
+              marginTop: 12,
+              padding: "7px 16px",
+              borderRadius: "var(--radius-xs)",
+              background: "var(--glass)",
+              border: "1px solid var(--glass-border)",
+              color: "var(--blue)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: downloading ? "not-allowed" : "pointer",
+              opacity: downloading ? 0.6 : 1,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              transition: "var(--transition)",
+            }}
+          >
+            <Download size={13} />
+            {downloading ? "Generating…" : "Download PDF"}
+          </button>
         </div>
 
         {/* Employer Cost */}

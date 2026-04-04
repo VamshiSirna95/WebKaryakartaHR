@@ -336,6 +336,8 @@ export default function PayrollPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>("salary");
   const [selectedDetail, setSelectedDetail] = useState<PayrollDetail | null>(null);
+  const [downloadingPayslips, setDownloadingPayslips] = useState(false);
+  const [downloadingBankFile, setDownloadingBankFile] = useState(false);
 
   useEffect(() => {
     fetch("/api/form-options")
@@ -406,6 +408,42 @@ export default function PayrollPage() {
     if (!details.length) return;
     const entity = entities.find((e) => e.id === entityId);
     exportSalaryRegister(details, MONTHS[month - 1], year, entity?.name ?? "Export");
+  }
+
+  async function handleDownloadPayslips() {
+    if (!entityId) return;
+    setDownloadingPayslips(true);
+    try {
+      const params = new URLSearchParams({ entityId, month: String(month), year: String(year) });
+      const res = await fetch(`/api/payroll/payslips-bulk?${params}`);
+      if (!res.ok) { const err = await res.json() as { error?: string }; alert(err.error ?? "Failed"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const entity = entities.find((e) => e.id === entityId);
+      a.download = `${entity?.name ?? "Payslips"}_Payslips_${MONTHS[month - 1]}_${year}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Download failed"); } finally { setDownloadingPayslips(false); }
+  }
+
+  async function handleDownloadBankFile() {
+    if (!entityId) return;
+    setDownloadingBankFile(true);
+    try {
+      const params = new URLSearchParams({ entityId, month: String(month), year: String(year) });
+      const res = await fetch(`/api/payroll/bank-file?${params}`);
+      if (!res.ok) { const err = await res.json() as { error?: string }; alert(err.error ?? "Failed"); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const entity = entities.find((e) => e.id === entityId);
+      a.download = `${entity?.name ?? "NEFT"}_NEFT_${MONTHS[month - 1]}_${year}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert("Download failed"); } finally { setDownloadingBankFile(false); }
   }
 
   const filteredLocations = locations.filter((l) => !entityId || l.entityId === entityId);
@@ -493,6 +531,30 @@ export default function PayrollPage() {
           onClick={handleExport}
         >
           Export Excel
+        </button>
+
+        <button
+          style={
+            !run || run.status === "DRAFT" || downloadingPayslips
+              ? { ...btnSecondary, opacity: 0.4, cursor: "not-allowed" }
+              : btnSecondary
+          }
+          disabled={!run || run.status === "DRAFT" || downloadingPayslips}
+          onClick={handleDownloadPayslips}
+        >
+          {downloadingPayslips ? "Generating\u2026" : "Download Payslips"}
+        </button>
+
+        <button
+          style={
+            !run || run.status === "DRAFT" || downloadingBankFile
+              ? { ...btnSecondary, opacity: 0.4, cursor: "not-allowed" }
+              : btnSecondary
+          }
+          disabled={!run || run.status === "DRAFT" || downloadingBankFile}
+          onClick={handleDownloadBankFile}
+        >
+          {downloadingBankFile ? "Generating\u2026" : "Bank File"}
         </button>
 
         <div style={{ flex: 1 }} />
