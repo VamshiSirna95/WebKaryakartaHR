@@ -3,8 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { Shield, CheckCircle, AlertTriangle, Clock } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
+import DeclarationModal from "@/components/DeclarationModal";
 
-type Tab = "pf" | "esi" | "pt" | "tracker";
+type Tab = "pf" | "esi" | "pt" | "tds" | "tracker";
+type TdsSubView = "register" | "declarations";
 
 const MONTHS = [
   "January","February","March","April","May","June",
@@ -45,6 +47,80 @@ interface ComplianceFiling {
   amount: number | null;
   remarks: string | null;
 }
+
+interface TdsDetail {
+  id: string;
+  employeeCode: string;
+  fullName: string;
+  panNumber: string | null;
+  grossSalary: number;
+  tds: number;
+  ytdTds: number;
+}
+
+interface TdsSummaryMonth {
+  month: number;
+  monthName: string;
+  year: number;
+  totalTds: number;
+  employeeCount: number;
+  challanStatus: string | null;
+}
+
+interface InvestmentDeclaration {
+  id: string;
+  employeeId: string;
+  financialYear: string;
+  regime: string;
+  sec80C_ppf: number;
+  sec80C_elss: number;
+  sec80C_lic: number;
+  sec80C_nsc: number;
+  sec80C_tuition: number;
+  sec80C_homeLoan: number;
+  sec80C_fd: number;
+  sec80C_sukanya: number;
+  sec80C_other: number;
+  sec80D_self: number;
+  sec80D_parents: number;
+  sec24_homeLoanInterest: number;
+  sec80E_eduLoan: number;
+  sec80G_donation: number;
+  nps_80CCD: number;
+  hraRentPaid: number;
+  hraMetro: boolean;
+  total80C: number;
+  totalDeductions: number;
+  status: string;
+  employee: {
+    employeeCode: string;
+    fullName: string;
+    department: { name: string } | null;
+  };
+}
+
+interface TdsProjection {
+  annualGross: number;
+  standardDeduction: number;
+  professionalTax: number;
+  sec80C: number;
+  sec80D: number;
+  sec24: number;
+  otherDeductions: number;
+  hraExemption: number;
+  totalExemptions: number;
+  taxableIncome: number;
+  taxOldRegime: number;
+  taxNewRegime: number;
+  selectedRegime: string;
+  applicableTax: number;
+  monthlyTds: number;
+  tdsPaidYtd: number;
+  tdsRemaining: number;
+  monthsRemaining: number;
+}
+
+interface EmployeeOption { id: string; employeeCode: string; fullName: string; }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -154,6 +230,23 @@ export default function CompliancePage() {
 
   const [markFiled, setMarkFiled] = useState<{ type: string; amount: number } | null>(null);
 
+  // TDS state
+  const [tdsSubView, setTdsSubView] = useState<TdsSubView>("register");
+  const [tdsDetails, setTdsDetails] = useState<TdsDetail[]>([]);
+  const [tdsTotals, setTdsTotals] = useState({ grossSalary: 0, tds: 0, ytdTds: 0 });
+  const [tdsSummary, setTdsSummary] = useState<TdsSummaryMonth[]>([]);
+  const [tdsFyTotal, setTdsFyTotal] = useState(0);
+  const [declarations, setDeclarations] = useState<InvestmentDeclaration[]>([]);
+  const [tdsLoading, setTdsLoading] = useState(false);
+  const [showDeclarationModal, setShowDeclarationModal] = useState(false);
+  const [editDeclaration, setEditDeclaration] = useState<InvestmentDeclaration | null>(null);
+  const [projectionData, setProjectionData] = useState<{ [empId: string]: TdsProjection }>({});
+  const [projectionOpen, setProjectionOpen] = useState<string | null>(null);
+  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
+
+  // FY string derived from year (April year → "year-(year+1-2digits)")
+  const fyString = `${year}-${String(year + 1).slice(-2)}`;
+
   // Persist entityId for modal
   useEffect(() => {
     if (entityId && typeof window !== "undefined") sessionStorage.setItem("complianceEntityId", entityId);
@@ -186,7 +279,47 @@ export default function CompliancePage() {
       .catch(() => {});
   }, [entityId, year]);
 
+  const fetchTdsRegister = useCallback(() => {
+    if (!entityId) return;
+    setTdsLoading(true);
+    Promise.all([
+      fetch(`/api/compliance/tds?entityId=${entityId}&month=${month}&year=${year}`).then((r) => r.json()) as Promise<{ details: TdsDetail[]; totals: { grossSalary: number; tds: number; ytdTds: number } }>,
+      fetch(`/api/compliance/tds/summary?entityId=${entityId}&year=${year}`).then((r) => r.json()) as Promise<{ months: TdsSummaryMonth[]; fyTotal: number }>,
+    ])
+      .then(([reg, sum]) => {
+        setTdsDetails(reg.details ?? []);
+        setTdsTotals(reg.totals ?? { grossSalary: 0, tds: 0, ytdTds: 0 });
+        setTdsSummary(sum.months ?? []);
+        setTdsFyTotal(sum.fyTotal ?? 0);
+      })
+      .catch(() => {})
+      .finally(() => setTdsLoading(false));
+  }, [entityId, month, year]);
+
+  const fetchDeclarations = useCallback(() => {
+    if (!entityId) return;
+    fetch(`/api/compliance/declarations?entityId=${entityId}&fy=${fyString}`)
+      .then((r) => r.json())
+      .then((d: InvestmentDeclaration[]) => setDeclarations(d ?? []))
+      .catch(() => {});
+  }, [entityId, fyString]);
+
+  const fetchEmployeeOptions = useCallback(() => {
+    if (!entityId) return;
+    fetch(`/api/employees?entityId=${entityId}&status=ACTIVE`)
+      .then((r) => r.json())
+      .then((d: EmployeeOption[]) => setEmployeeOptions(d ?? []))
+      .catch(() => {});
+  }, [entityId]);
+
   useEffect(() => { fetchDetails(); fetchFilings(); }, [fetchDetails, fetchFilings]);
+
+  useEffect(() => {
+    if (activeTab === "tds") {
+      if (tdsSubView === "register") fetchTdsRegister();
+      else { fetchDeclarations(); fetchEmployeeOptions(); }
+    }
+  }, [activeTab, tdsSubView, fetchTdsRegister, fetchDeclarations, fetchEmployeeOptions]);
 
   const currentEntity = entities.find((e) => e.id === entityId);
 
@@ -223,16 +356,20 @@ export default function CompliancePage() {
   const pfFiled = filings.filter((f) => f.type === "PF" && f.status === "FILED").length;
   const esiFiled = filings.filter((f) => f.type === "ESI" && f.status === "FILED").length;
   const ptFiled = filings.filter((f) => f.type === "PT" && f.status === "FILED").length;
+  const tdsFiled = filings.filter((f) => f.type === "TDS" && f.status === "FILED").length;
   const overdue = filings.filter((f) => f.status !== "FILED" && new Date(f.dueDate) < now).length;
+
+  // TDS total for current month (for mark filed)
+  const currentMonthTds = tdsDetails.reduce((s, d) => s + d.tds, 0);
 
   // Tracker: build grid
   const trackerMonths = Array.from({ length: 12 }, (_, i) => i + 1);
-  const trackerTypes = ["PF", "ESI", "PT"];
+  const trackerTypes = ["PF", "ESI", "PT", "TDS"];
   function getCell(m: number, t: string) {
     const f = filings.find((x) => x.month === m && x.type === t);
     if (f) return f;
-    // Synthesize PENDING/OVERDUE for months with payroll
-    const dueDay = t === "PT" ? 21 : 15;
+    // Synthesize PENDING/OVERDUE
+    const dueDay = t === "PT" ? 21 : t === "TDS" ? 7 : 15;
     const dueM = m === 12 ? 1 : m + 1;
     const dueY = m === 12 ? year + 1 : year;
     const due = new Date(dueY, dueM - 1, dueDay);
@@ -250,6 +387,7 @@ export default function CompliancePage() {
     { id: "pf", label: "PF" },
     { id: "esi", label: "ESI" },
     { id: "pt", label: "PT" },
+    { id: "tds", label: "TDS" },
     { id: "tracker", label: "Tracker" },
   ];
 
@@ -279,10 +417,11 @@ export default function CompliancePage() {
       </div>
 
       {/* Metric Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 20 }}>
         <MetricCard color="green" icon={<CheckCircle size={16} />} value={`${pfFiled}/${totalMonthsInYear}`} label="PF Filings (FY)" />
         <MetricCard color="blue" icon={<Shield size={16} />} value={`${esiFiled}/${totalMonthsInYear}`} label="ESI Filings (FY)" />
         <MetricCard color="purple" icon={<CheckCircle size={16} />} value={`${ptFiled}/${totalMonthsInYear}`} label="PT Filings (FY)" />
+        <MetricCard color="amber" icon={<CheckCircle size={16} />} value={`${tdsFiled}/${totalMonthsInYear}`} label="TDS Filings (FY)" />
         <MetricCard color="red" icon={<AlertTriangle size={16} />} value={String(overdue)} label="Overdue" />
       </div>
 
@@ -328,6 +467,24 @@ export default function CompliancePage() {
               </span>
             ) : (
               <button style={btnGreen} onClick={() => setMarkFiled({ type: "PT", amount: ptTotal })}>Mark as Filed</button>
+            )}
+          </>
+        )}
+        {activeTab === "tds" && (
+          <>
+            <button style={{ ...btnSecondary, fontWeight: tdsSubView === "register" ? 700 : 500, color: tdsSubView === "register" ? "var(--blue)" : "var(--text-3)" }} onClick={() => setTdsSubView("register")}>Register</button>
+            <button style={{ ...btnSecondary, fontWeight: tdsSubView === "declarations" ? 700 : 500, color: tdsSubView === "declarations" ? "var(--blue)" : "var(--text-3)" }} onClick={() => setTdsSubView("declarations")}>Declarations</button>
+            {tdsSubView === "register" && (
+              currentFiling("TDS") ? (
+                <span style={{ fontSize: 11, padding: "4px 10px", borderRadius: 12, background: "var(--green-bg)", color: "var(--green)", fontWeight: 600 }}>
+                  ✓ Filed — {currentFiling("TDS")!.referenceNo}
+                </span>
+              ) : (
+                <button style={btnGreen} onClick={() => setMarkFiled({ type: "TDS", amount: currentMonthTds })}>Mark as Filed</button>
+              )
+            )}
+            {tdsSubView === "declarations" && (
+              <button style={btnPrimary} onClick={() => { setEditDeclaration(null); setShowDeclarationModal(true); }}>+ Add Declaration</button>
             )}
           </>
         )}
@@ -513,6 +670,222 @@ export default function CompliancePage() {
               </div>
             </div>
           )
+        ) : activeTab === "tds" ? (
+          tdsLoading ? (
+            <div style={{ padding: "40px", textAlign: "center", color: "var(--text-3)" }}>Loading…</div>
+          ) : tdsSubView === "register" ? (
+            /* TDS Register */
+            <div>
+              {tdsDetails.length === 0 ? (
+                <div style={{ padding: "40px", textAlign: "center", color: "var(--text-3)" }}>No payroll data for this period. TDS register will appear after payroll is processed.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        <th style={thBase}>Code</th><th style={thBase}>Name</th><th style={thBase}>PAN</th>
+                        <th style={thR}>Gross Salary</th>
+                        <th style={{ ...thR, color: "var(--amber)" }}>TDS Deducted</th>
+                        <th style={{ ...thR, color: "var(--blue)" }}>YTD TDS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tdsDetails.map((d) => (
+                        <tr key={d.id} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--glass-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                          <td style={{ ...tdBase, fontFamily: "monospace", fontSize: 11, color: "var(--text-3)" }}>{d.employeeCode}</td>
+                          <td style={{ ...tdBase, fontWeight: 500, color: "var(--text-1)" }}>{d.fullName}</td>
+                          <td style={{ ...tdBase, fontFamily: "monospace", fontSize: 11, color: "var(--text-4)" }}>{d.panNumber ?? "—"}</td>
+                          <td style={tdR}>{fmt(d.grossSalary)}</td>
+                          <td style={{ ...tdR, color: d.tds > 0 ? "var(--amber)" : "var(--text-4)", fontWeight: d.tds > 0 ? 600 : 400 }}>{d.tds > 0 ? fmt(d.tds) : "—"}</td>
+                          <td style={{ ...tdR, color: "var(--blue)", fontWeight: 600 }}>{fmt(d.ytdTds)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: "var(--bg-2)" }}>
+                        <td colSpan={3} style={{ ...tdBase, fontWeight: 700, borderTop: "2px solid var(--glass-border)" }}>TOTALS ({tdsDetails.length})</td>
+                        <td style={{ ...tdR, fontWeight: 700, borderTop: "2px solid var(--glass-border)" }}>{fmt(tdsTotals.grossSalary)}</td>
+                        <td style={{ ...tdR, fontWeight: 700, color: "var(--amber)", borderTop: "2px solid var(--glass-border)" }}>{fmt(tdsTotals.tds)}</td>
+                        <td style={{ ...tdR, fontWeight: 700, color: "var(--blue)", borderTop: "2px solid var(--glass-border)" }}>{fmt(tdsTotals.ytdTds)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+              {/* Monthly TDS Summary */}
+              <div style={{ padding: 16, borderTop: "1px solid var(--glass-border)" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-2)", marginBottom: 12 }}>
+                  Monthly TDS Summary — FY {fyString} &nbsp;
+                  <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-3)" }}>
+                    Total: ₹{fmt(tdsFyTotal)}
+                  </span>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={thBase}>Month</th>
+                        <th style={thR}>Total TDS</th>
+                        <th style={{ ...thBase, textAlign: "center" }}>Employees</th>
+                        <th style={{ ...thBase, textAlign: "center" }}>Challan Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tdsSummary.map((m) => {
+                        const statusStyle: Record<string, React.CSSProperties> = {
+                          FILED: { background: "var(--green-bg)", color: "var(--green)" },
+                          PENDING: { background: "var(--amber-bg)", color: "var(--amber)" },
+                          OVERDUE: { background: "var(--red-bg)", color: "var(--red)" },
+                        };
+                        const st = m.challanStatus ? (statusStyle[m.challanStatus] ?? statusStyle.PENDING) : null;
+                        return (
+                          <tr key={`${m.month}-${m.year}`} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--glass-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                            <td style={{ ...tdBase, fontWeight: 500, color: "var(--text-1)" }}>{m.monthName} {m.year}</td>
+                            <td style={{ ...tdR, color: m.totalTds > 0 ? "var(--amber)" : "var(--text-4)", fontWeight: m.totalTds > 0 ? 600 : 400 }}>{m.totalTds > 0 ? `₹${fmt(m.totalTds)}` : "—"}</td>
+                            <td style={{ ...tdBase, textAlign: "center", color: "var(--text-3)" }}>{m.employeeCount || "—"}</td>
+                            <td style={{ ...tdBase, textAlign: "center" }}>
+                              {st && m.challanStatus ? (
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, ...st }}>{m.challanStatus}</span>
+                              ) : <span style={{ color: "var(--text-4)", fontSize: 11 }}>—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Declarations sub-view */
+            <div>
+              {declarations.length === 0 ? (
+                <div style={{ padding: "40px", textAlign: "center", color: "var(--text-3)" }}>
+                  No declarations for FY {fyString}. Click &quot;+ Add Declaration&quot; to add one.
+                </div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        <th style={thBase}>Code</th><th style={thBase}>Name</th><th style={thBase}>Dept</th>
+                        <th style={{ ...thBase, textAlign: "center" }}>Regime</th>
+                        <th style={thR}>80C</th><th style={thR}>80D</th><th style={thR}>24(b)</th><th style={thR}>Other</th>
+                        <th style={{ ...thR, color: "var(--blue)" }}>Total Deductions</th>
+                        <th style={{ ...thBase, textAlign: "center" }}>Status</th>
+                        <th style={thBase}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {declarations.map((d) => {
+                        const other = d.sec80E_eduLoan + d.sec80G_donation + d.nps_80CCD;
+                        return (
+                          <tr key={d.id} onMouseEnter={(e) => { e.currentTarget.style.background = "var(--glass-hover)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
+                            <td style={{ ...tdBase, fontFamily: "monospace", fontSize: 11, color: "var(--text-3)" }}>{d.employee.employeeCode}</td>
+                            <td style={{ ...tdBase, fontWeight: 500, color: "var(--text-1)" }}>{d.employee.fullName}</td>
+                            <td style={{ ...tdBase, color: "var(--text-3)", fontSize: 11 }}>{d.employee.department?.name ?? "—"}</td>
+                            <td style={{ ...tdBase, textAlign: "center" }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: d.regime === "OLD" ? "var(--amber-bg)" : "var(--blue-bg, rgba(59,130,246,0.15))", color: d.regime === "OLD" ? "var(--amber)" : "var(--blue)" }}>
+                                {d.regime}
+                              </span>
+                            </td>
+                            <td style={tdR}>{fmt(d.total80C)}</td>
+                            <td style={tdR}>{fmt(d.sec80D_self + d.sec80D_parents)}</td>
+                            <td style={tdR}>{fmt(d.sec24_homeLoanInterest)}</td>
+                            <td style={tdR}>{fmt(other)}</td>
+                            <td style={{ ...tdR, color: "var(--blue)", fontWeight: 600 }}>₹{fmt(d.totalDeductions)}</td>
+                            <td style={{ ...tdBase, textAlign: "center" }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: d.status === "LOCKED" ? "var(--green-bg)" : d.status === "VERIFIED" ? "var(--blue-bg, rgba(59,130,246,0.15))" : "var(--amber-bg)", color: d.status === "LOCKED" ? "var(--green)" : d.status === "VERIFIED" ? "var(--blue)" : "var(--amber)" }}>
+                                {d.status}
+                              </span>
+                            </td>
+                            <td style={{ ...tdBase, whiteSpace: "nowrap" }}>
+                              <button style={{ ...btnSecondary, fontSize: 11, marginRight: 6 }} onClick={() => { setEditDeclaration(d); setShowDeclarationModal(true); }}>Edit</button>
+                              <button style={{ ...btnSecondary, fontSize: 11 }} onClick={async () => {
+                                if (projectionOpen === d.employeeId) { setProjectionOpen(null); return; }
+                                const res = await fetch(`/api/compliance/tds/projection?employeeId=${d.employeeId}&fy=${fyString}`);
+                                const data = await res.json() as TdsProjection;
+                                setProjectionData((prev) => ({ ...prev, [d.employeeId]: data }));
+                                setProjectionOpen(d.employeeId);
+                              }}>
+                                {projectionOpen === d.employeeId ? "Hide" : "Projection"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {/* Projection Panel */}
+              {projectionOpen && projectionData[projectionOpen] && (() => {
+                const p = projectionData[projectionOpen];
+                const rows: [string, number, string?][] = [
+                  ["Annual Gross", p.annualGross],
+                  ["Standard Deduction", -p.standardDeduction, "var(--red)"],
+                  ["Professional Tax", -p.professionalTax, "var(--red)"],
+                  p.sec80C > 0 ? ["80C Deductions", -p.sec80C, "var(--red)"] : null,
+                  p.sec80D > 0 ? ["80D (Health Insurance)", -p.sec80D, "var(--red)"] : null,
+                  p.sec24 > 0 ? ["24(b) Home Loan Interest", -p.sec24, "var(--red)"] : null,
+                  p.otherDeductions > 0 ? ["Other Deductions (80E/80G/NPS)", -p.otherDeductions, "var(--red)"] : null,
+                  p.hraExemption > 0 ? ["HRA Exemption", -p.hraExemption, "var(--red)"] : null,
+                ].filter(Boolean) as [string, number, string?][];
+                const statusColors: Record<string, string> = {
+                  FILED: "var(--green)", PENDING: "var(--amber)", OVERDUE: "var(--red)",
+                };
+                return (
+                  <div style={{ margin: 16, padding: 20, background: "var(--glass)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius-xs)" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>
+                      TDS Projection — {declarations.find(d => d.employeeId === projectionOpen)?.employee.fullName} — FY {fyString} — {p.selectedRegime} Regime
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                      <div>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <tbody>
+                            {rows.map(([label, val, color]) => (
+                              <tr key={label}>
+                                <td style={{ padding: "5px 0", color: "var(--text-3)" }}>{label}</td>
+                                <td style={{ padding: "5px 0", textAlign: "right", color: color ?? "var(--text-1)", fontWeight: 500 }}>
+                                  {val < 0 ? "−" : ""}₹{fmt(Math.abs(val))}
+                                </td>
+                              </tr>
+                            ))}
+                            <tr style={{ borderTop: "1px solid var(--glass-border)" }}>
+                              <td style={{ padding: "7px 0", fontWeight: 700, color: "var(--text-1)" }}>Taxable Income</td>
+                              <td style={{ padding: "7px 0", textAlign: "right", fontWeight: 800, color: "var(--blue)", fontSize: 14 }}>₹{fmt(p.taxableIncome)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <div>
+                        <div style={{ display: "grid", gap: 10 }}>
+                          {[
+                            { label: "Tax (Old Regime)", val: p.taxOldRegime, highlight: p.selectedRegime === "OLD" },
+                            { label: "Tax (New Regime)", val: p.taxNewRegime, highlight: p.selectedRegime === "NEW" },
+                            { label: "Applicable Tax (incl. 4% cess)", val: p.applicableTax, big: true },
+                            { label: "Monthly TDS", val: p.monthlyTds },
+                            { label: "TDS Paid YTD", val: p.tdsPaidYtd, color: statusColors.FILED },
+                            { label: "TDS Remaining", val: p.tdsRemaining, color: p.tdsRemaining > 0 ? "var(--amber)" : "var(--green)" },
+                          ].map(({ label, val, highlight, big, color }) => (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: "var(--radius-xs)", background: highlight ? "rgba(59,130,246,0.1)" : "var(--bg-2)", border: highlight ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent" }}>
+                              <span style={{ fontSize: 11, color: "var(--text-3)" }}>{label}</span>
+                              <span style={{ fontSize: big ? 16 : 13, fontWeight: big ? 800 : 600, color: color ?? (highlight ? "var(--blue)" : "var(--text-1)") }}>
+                                ₹{fmt(val)}
+                              </span>
+                            </div>
+                          ))}
+                          <div style={{ fontSize: 11, color: "var(--text-4)", textAlign: "center", marginTop: 4 }}>
+                            {p.monthsRemaining} month{p.monthsRemaining !== 1 ? "s" : ""} remaining in FY
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )
         ) : (
           /* Tracker Tab */
           <div style={{ overflowX: "auto" }}>
@@ -567,7 +940,19 @@ export default function CompliancePage() {
           year={year}
           defaultAmount={markFiled.amount}
           onClose={() => setMarkFiled(null)}
-          onFiled={() => { fetchFilings(); }}
+          onFiled={() => { fetchFilings(); if (activeTab === "tds") fetchTdsRegister(); }}
+        />
+      )}
+
+      {/* Declaration Modal */}
+      {showDeclarationModal && (
+        <DeclarationModal
+          entityId={entityId}
+          fy={fyString}
+          employees={employeeOptions}
+          initial={editDeclaration}
+          onClose={() => { setShowDeclarationModal(false); setEditDeclaration(null); }}
+          onSaved={() => { fetchDeclarations(); }}
         />
       )}
 
