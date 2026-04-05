@@ -15,7 +15,8 @@
     "seed:bank": "npx tsx prisma/seed-bank.ts",
     "seed:leaves": "npx tsx prisma/seed-leaves.ts",
     "seed:compliance": "npx tsx prisma/seed-compliance.ts",
-    "seed:declarations": "npx tsx prisma/seed-declarations.ts"
+    "seed:declarations": "npx tsx prisma/seed-declarations.ts",
+    "seed:performance": "npx tsx prisma/seed-performance.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.1",
