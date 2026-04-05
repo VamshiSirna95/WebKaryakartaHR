@@ -24,6 +24,8 @@ model Entity {
   leaveRequests          LeaveRequest[]
   complianceFilings      ComplianceFiling[]
   investmentDeclarations InvestmentDeclaration[]
+  salesRecords           SalesRecord[]
+  performanceThresholds  PerformanceThreshold[]
   createdAt              DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 }
@@ -42,11 +44,12 @@ model Location {
 }
 
 model Department {
-  id             String          @id @default(cuid())
-  name           String          @unique
-  subDepartments SubDepartment[]
-  employees      Employee[]
-  createdAt      DateTime        @default(now())
+  id                    String                 @id @default(cuid())
+  name                  String                 @unique
+  subDepartments        SubDepartment[]
+  employees             Employee[]
+  performanceThresholds PerformanceThreshold[]
+  createdAt             DateTime               @default(now())
 }
 
 model SubDepartment {
@@ -136,6 +139,7 @@ model Employee {
   leaveBalances          LeaveBalance[]
   leaveRequests          LeaveRequest[]
   investmentDeclarations InvestmentDeclaration[]
+  salesRecords           SalesRecord[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -480,4 +484,42 @@ model InvestmentDeclaration {
 
   @@unique([employeeId, financialYear])
   @@map("investment_declarations")
+}
+
+model SalesRecord {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  entityId    String
+  entity      Entity   @relation(fields: [entityId], references: [id])
+  month       Int
+  year        Int
+  totalSales  Float
+  workedDays  Float
+  grossSalary Float
+  perDayAvg   Float
+  salaryRatio Float
+  status      String
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([employeeId, month, year])
+  @@index([entityId, month, year])
+  @@map("sales_records")
+}
+
+model PerformanceThreshold {
+  id           String      @id @default(cuid())
+  entityId     String
+  entity       Entity      @relation(fields: [entityId], references: [id])
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  goodBelow    Float       @default(6.0)
+  improveBelow Float       @default(8.0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([entityId, departmentId])
+  @@map("performance_thresholds")
 }
