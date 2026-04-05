@@ -12,6 +12,7 @@ import {
   Shield,
   FileText,
   Settings,
+  TrendingUp,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -58,6 +59,12 @@ export function Sidebar({ employeeCount }: SidebarProps) {
       title: "Compliance",
       items: [
         { label: "PF/ESI/PT", href: "/compliance", icon: <Shield size={18} />, badge: "3", badgeColor: "red" },
+      ],
+    },
+    {
+      title: "Performance",
+      items: [
+        { label: "Sales Performance", href: "/performance", icon: <TrendingUp size={18} /> },
       ],
     },
     {
