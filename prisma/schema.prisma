@@ -20,10 +20,11 @@ model Entity {
   employees        Employee[]
   attendanceMonths AttendanceMonth[]
   payrollRuns      PayrollRun[]
-  leaveTypes       LeaveType[]
-  leaveRequests    LeaveRequest[]
-  complianceFilings ComplianceFiling[]
-  createdAt        DateTime          @default(now())
+  leaveTypes             LeaveType[]
+  leaveRequests          LeaveRequest[]
+  complianceFilings      ComplianceFiling[]
+  investmentDeclarations InvestmentDeclaration[]
+  createdAt              DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 }
 
@@ -128,12 +129,13 @@ model Employee {
   specialAllow Decimal @default(0) @db.Decimal(12, 2)
   travelAllow  Decimal @default(0) @db.Decimal(12, 2)
 
-  attendanceRecords AttendanceRecord[]
-  payrollDetails    PayrollDetail[]
-  advanceEntries    AdvanceEntry[]
-  loanAccounts      LoanAccount[]
-  leaveBalances     LeaveBalance[]
-  leaveRequests     LeaveRequest[]
+  attendanceRecords      AttendanceRecord[]
+  payrollDetails         PayrollDetail[]
+  advanceEntries         AdvanceEntry[]
+  loanAccounts           LoanAccount[]
+  leaveBalances          LeaveBalance[]
+  leaveRequests          LeaveRequest[]
+  investmentDeclarations InvestmentDeclaration[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -430,4 +432,52 @@ model ComplianceFiling {
 
   @@unique([entityId, type, month, year])
   @@map("compliance_filings")
+}
+
+model InvestmentDeclaration {
+  id            String   @id @default(cuid())
+  employeeId    String
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  entityId      String
+  entity        Entity   @relation(fields: [entityId], references: [id])
+  financialYear String
+  regime        String   @default("NEW")
+
+  // Section 80C (max ₹1,50,000)
+  sec80C_ppf      Float @default(0)
+  sec80C_elss     Float @default(0)
+  sec80C_lic      Float @default(0)
+  sec80C_nsc      Float @default(0)
+  sec80C_tuition  Float @default(0)
+  sec80C_homeLoan Float @default(0)
+  sec80C_fd       Float @default(0)
+  sec80C_sukanya  Float @default(0)
+  sec80C_other    Float @default(0)
+
+  // Section 80D (Health Insurance)
+  sec80D_self    Float @default(0)
+  sec80D_parents Float @default(0)
+
+  // Section 24(b) — Home Loan Interest
+  sec24_homeLoanInterest Float @default(0)
+
+  // Other sections
+  sec80E_eduLoan  Float @default(0)
+  sec80G_donation Float @default(0)
+  nps_80CCD       Float @default(0)
+
+  // HRA Exemption inputs
+  hraRentPaid Float   @default(0)
+  hraMetro    Boolean @default(false)
+
+  // Computed totals
+  total80C        Float  @default(0)
+  totalDeductions Float  @default(0)
+  status          String @default("DECLARED")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, financialYear])
+  @@map("investment_declarations")
 }
