@@ -242,6 +242,7 @@ export default function CompliancePage() {
   const [editDeclaration, setEditDeclaration] = useState<InvestmentDeclaration | null>(null);
   const [projectionData, setProjectionData] = useState<{ [empId: string]: TdsProjection }>({});
   const [projectionOpen, setProjectionOpen] = useState<string | null>(null);
+  const [projectionLoading, setProjectionLoading] = useState<string | null>(null); // employeeId being loaded
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
 
   // FY string derived from year (April year → "year-(year+1-2digits)")
@@ -803,12 +804,16 @@ export default function CompliancePage() {
                               <button style={{ ...btnSecondary, fontSize: 11, marginRight: 6 }} onClick={() => { setEditDeclaration(d); setShowDeclarationModal(true); }}>Edit</button>
                               <button style={{ ...btnSecondary, fontSize: 11 }} onClick={async () => {
                                 if (projectionOpen === d.employeeId) { setProjectionOpen(null); return; }
-                                const res = await fetch(`/api/compliance/tds/projection?employeeId=${d.employeeId}&fy=${fyString}`);
-                                const data = await res.json() as TdsProjection;
-                                setProjectionData((prev) => ({ ...prev, [d.employeeId]: data }));
-                                setProjectionOpen(d.employeeId);
+                                setProjectionLoading(d.employeeId);
+                                try {
+                                  const res = await fetch(`/api/compliance/tds/projection?employeeId=${d.employeeId}&fy=${fyString}`);
+                                  if (!res.ok) throw new Error("API error");
+                                  const data = await res.json() as TdsProjection;
+                                  setProjectionData((prev) => ({ ...prev, [d.employeeId]: data }));
+                                  setProjectionOpen(d.employeeId);
+                                } catch { alert("Failed to load projection"); } finally { setProjectionLoading(null); }
                               }}>
-                                {projectionOpen === d.employeeId ? "Hide" : "Projection"}
+                                {projectionLoading === d.employeeId ? "Loading…" : projectionOpen === d.employeeId ? "▲ Hide" : "▼ View Projection"}
                               </button>
                             </td>
                           </tr>
@@ -821,63 +826,130 @@ export default function CompliancePage() {
               {/* Projection Panel */}
               {projectionOpen && projectionData[projectionOpen] && (() => {
                 const p = projectionData[projectionOpen];
-                const rows: [string, number, string?][] = [
-                  ["Annual Gross", p.annualGross],
-                  ["Standard Deduction", -p.standardDeduction, "var(--red)"],
-                  ["Professional Tax", -p.professionalTax, "var(--red)"],
-                  p.sec80C > 0 ? ["80C Deductions", -p.sec80C, "var(--red)"] : null,
-                  p.sec80D > 0 ? ["80D (Health Insurance)", -p.sec80D, "var(--red)"] : null,
-                  p.sec24 > 0 ? ["24(b) Home Loan Interest", -p.sec24, "var(--red)"] : null,
-                  p.otherDeductions > 0 ? ["Other Deductions (80E/80G/NPS)", -p.otherDeductions, "var(--red)"] : null,
-                  p.hraExemption > 0 ? ["HRA Exemption", -p.hraExemption, "var(--red)"] : null,
-                ].filter(Boolean) as [string, number, string?][];
-                const statusColors: Record<string, string> = {
-                  FILED: "var(--green)", PENDING: "var(--amber)", OVERDUE: "var(--red)",
-                };
+                const emp = declarations.find((d) => d.employeeId === projectionOpen);
+
+                const deductionRows: [string, number][] = [
+                  ["Standard Deduction (u/s 16)", p.standardDeduction],
+                  ...(p.professionalTax > 0 ? [["Professional Tax", p.professionalTax] as [string, number]] : []),
+                  ...(p.sec80C > 0 ? [["Section 80C (PPF / ELSS / LIC etc.)", p.sec80C] as [string, number]] : []),
+                  ...(p.sec80D > 0 ? [["Section 80D (Health Insurance)", p.sec80D] as [string, number]] : []),
+                  ...(p.sec24 > 0 ? [["Section 24(b) (Home Loan Interest)", p.sec24] as [string, number]] : []),
+                  ...(p.otherDeductions > 0 ? [["Other (80E / 80G / NPS 80CCD)", p.otherDeductions] as [string, number]] : []),
+                  ...(p.hraExemption > 0 ? [["HRA Exemption", p.hraExemption] as [string, number]] : []),
+                ];
+
+                // Slab-wise breakdown
+                const newSlabs = [
+                  { range: "₹0 – ₹4,00,000", rate: "Nil" },
+                  { range: "₹4,00,001 – ₹8,00,000", rate: "5%" },
+                  { range: "₹8,00,001 – ₹12,00,000", rate: "10%" },
+                  { range: "₹12,00,001 – ₹16,00,000", rate: "15%" },
+                  { range: "₹16,00,001 – ₹20,00,000", rate: "20%" },
+                  { range: "₹20,00,001 – ₹24,00,000", rate: "25%" },
+                  { range: "Above ₹24,00,000", rate: "30%" },
+                  { range: "Rebate u/s 87A (income ≤ ₹12L)", rate: "Tax = ₹0" },
+                ];
+                const oldSlabs = [
+                  { range: "₹0 – ₹2,50,000", rate: "Nil" },
+                  { range: "₹2,50,001 – ₹5,00,000", rate: "5%" },
+                  { range: "₹5,00,001 – ₹10,00,000", rate: "20%" },
+                  { range: "Above ₹10,00,000", rate: "30%" },
+                  { range: "Rebate u/s 87A (income ≤ ₹5L)", rate: "Tax = ₹0" },
+                ];
+                const slabs = p.selectedRegime === "NEW" ? newSlabs : oldSlabs;
+                const baseTax = p.selectedRegime === "NEW" ? p.taxNewRegime : p.taxOldRegime;
+                const cessAmt = p.applicableTax - Math.round(baseTax / 1.04);
+
                 return (
                   <div style={{ margin: 16, padding: 20, background: "var(--glass)", border: "1px solid var(--glass-border)", borderRadius: "var(--radius-xs)" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)", marginBottom: 12 }}>
-                      TDS Projection — {declarations.find(d => d.employeeId === projectionOpen)?.employee.fullName} — FY {fyString} — {p.selectedRegime} Regime
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                    {/* Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
                       <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>
+                          TDS Projection — {emp?.employee.fullName} — FY {fyString}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 2 }}>
+                          <span style={{ fontWeight: 700, padding: "2px 8px", borderRadius: 10, background: p.selectedRegime === "OLD" ? "var(--amber-bg)" : "rgba(59,130,246,0.15)", color: p.selectedRegime === "OLD" ? "var(--amber)" : "var(--blue)", marginRight: 8 }}>{p.selectedRegime} Regime</span>
+                          {p.monthsRemaining} month{p.monthsRemaining !== 1 ? "s" : ""} remaining in FY
+                        </div>
+                      </div>
+                      <button onClick={() => setProjectionOpen(null)} style={{ background: "none", border: "none", color: "var(--text-3)", cursor: "pointer", fontSize: 16 }}>✕</button>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+                      {/* Column 1: Income & Deductions */}
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>Income & Deductions</div>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <tbody>
-                            {rows.map(([label, val, color]) => (
+                            <tr>
+                              <td style={{ padding: "5px 0", color: "var(--text-2)", fontWeight: 600 }}>Annual Gross</td>
+                              <td style={{ padding: "5px 0", textAlign: "right", color: "var(--text-1)", fontWeight: 700 }}>₹{fmt(p.annualGross)}</td>
+                            </tr>
+                            {deductionRows.map(([label, val]) => (
                               <tr key={label}>
-                                <td style={{ padding: "5px 0", color: "var(--text-3)" }}>{label}</td>
-                                <td style={{ padding: "5px 0", textAlign: "right", color: color ?? "var(--text-1)", fontWeight: 500 }}>
-                                  {val < 0 ? "−" : ""}₹{fmt(Math.abs(val))}
-                                </td>
+                                <td style={{ padding: "4px 0 4px 8px", color: "var(--text-3)", fontSize: 11 }}>− {label}</td>
+                                <td style={{ padding: "4px 0", textAlign: "right", color: "var(--red)", fontSize: 11 }}>₹{fmt(val)}</td>
                               </tr>
                             ))}
-                            <tr style={{ borderTop: "1px solid var(--glass-border)" }}>
-                              <td style={{ padding: "7px 0", fontWeight: 700, color: "var(--text-1)" }}>Taxable Income</td>
-                              <td style={{ padding: "7px 0", textAlign: "right", fontWeight: 800, color: "var(--blue)", fontSize: 14 }}>₹{fmt(p.taxableIncome)}</td>
+                            <tr style={{ borderTop: "2px solid var(--glass-border)" }}>
+                              <td style={{ padding: "8px 0 4px", fontWeight: 700, color: "var(--text-1)", fontSize: 12 }}>Taxable Income</td>
+                              <td style={{ padding: "8px 0 4px", textAlign: "right", fontWeight: 800, color: "var(--blue)", fontSize: 15 }}>₹{fmt(p.taxableIncome)}</td>
                             </tr>
                           </tbody>
                         </table>
                       </div>
+
+                      {/* Column 2: Slab-wise breakdown */}
                       <div>
-                        <div style={{ display: "grid", gap: 10 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>Tax Slabs ({p.selectedRegime} Regime)</div>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                          <thead>
+                            <tr>
+                              <th style={{ padding: "4px 0", textAlign: "left", color: "var(--text-4)", fontWeight: 600 }}>Range</th>
+                              <th style={{ padding: "4px 0", textAlign: "right", color: "var(--text-4)", fontWeight: 600 }}>Rate</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {slabs.map((s) => (
+                              <tr key={s.range}>
+                                <td style={{ padding: "4px 0", color: "var(--text-3)" }}>{s.range}</td>
+                                <td style={{ padding: "4px 0", textAlign: "right", color: "var(--amber)", fontWeight: 600 }}>{s.rate}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: "var(--radius-xs)", background: "var(--bg-2)", fontSize: 11 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "var(--text-3)" }}>Tax before cess</span>
+                            <span style={{ color: "var(--text-2)", fontWeight: 600 }}>₹{fmt(Math.round(baseTax / 1.04))}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                            <span style={{ color: "var(--text-3)" }}>Health & Education Cess (4%)</span>
+                            <span style={{ color: "var(--text-2)", fontWeight: 600 }}>₹{fmt(cessAmt)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Column 3: Summary */}
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-3)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>Tax Summary</div>
+                        <div style={{ display: "grid", gap: 8 }}>
                           {[
-                            { label: "Tax (Old Regime)", val: p.taxOldRegime, highlight: p.selectedRegime === "OLD" },
-                            { label: "Tax (New Regime)", val: p.taxNewRegime, highlight: p.selectedRegime === "NEW" },
-                            { label: "Applicable Tax (incl. 4% cess)", val: p.applicableTax, big: true },
-                            { label: "Monthly TDS", val: p.monthlyTds },
-                            { label: "TDS Paid YTD", val: p.tdsPaidYtd, color: statusColors.FILED },
+                            { label: "Tax — Old Regime", val: p.taxOldRegime, highlight: p.selectedRegime === "OLD" },
+                            { label: "Tax — New Regime", val: p.taxNewRegime, highlight: p.selectedRegime === "NEW" },
+                            { label: "Total Tax Liability", val: p.applicableTax, big: true },
+                            { label: "Monthly TDS (÷12)", val: p.monthlyTds },
+                            { label: "TDS Paid YTD", val: p.tdsPaidYtd, color: "var(--green)" },
                             { label: "TDS Remaining", val: p.tdsRemaining, color: p.tdsRemaining > 0 ? "var(--amber)" : "var(--green)" },
                           ].map(({ label, val, highlight, big, color }) => (
-                            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: "var(--radius-xs)", background: highlight ? "rgba(59,130,246,0.1)" : "var(--bg-2)", border: highlight ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent" }}>
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: "var(--radius-xs)", background: highlight ? "rgba(59,130,246,0.12)" : "var(--bg-2)", border: highlight ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent" }}>
                               <span style={{ fontSize: 11, color: "var(--text-3)" }}>{label}</span>
-                              <span style={{ fontSize: big ? 16 : 13, fontWeight: big ? 800 : 600, color: color ?? (highlight ? "var(--blue)" : "var(--text-1)") }}>
+                              <span style={{ fontSize: big ? 15 : 12, fontWeight: big ? 800 : 600, color: color ?? (highlight ? "var(--blue)" : "var(--text-1)") }}>
                                 ₹{fmt(val)}
                               </span>
                             </div>
                           ))}
-                          <div style={{ fontSize: 11, color: "var(--text-4)", textAlign: "center", marginTop: 4 }}>
-                            {p.monthsRemaining} month{p.monthsRemaining !== 1 ? "s" : ""} remaining in FY
-                          </div>
                         </div>
                       </div>
                     </div>
