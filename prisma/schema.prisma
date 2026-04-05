@@ -22,6 +22,7 @@ model Entity {
   payrollRuns      PayrollRun[]
   leaveTypes       LeaveType[]
   leaveRequests    LeaveRequest[]
+  complianceFilings ComplianceFiling[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 }
@@ -408,4 +409,25 @@ model LeaveRequest {
   updatedAt       DateTime  @updatedAt
 
   @@map("leave_requests")
+}
+
+model ComplianceFiling {
+  id          String    @id @default(cuid())
+  entityId    String
+  entity      Entity    @relation(fields: [entityId], references: [id])
+  type        String
+  month       Int
+  year        Int
+  dueDate     DateTime  @db.Date
+  status      String    @default("PENDING")
+  filedAt     DateTime?
+  filedBy     String?
+  referenceNo String?
+  amount      Float?
+  remarks     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([entityId, type, month, year])
+  @@map("compliance_filings")
 }
